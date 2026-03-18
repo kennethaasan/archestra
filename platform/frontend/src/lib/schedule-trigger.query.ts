@@ -130,7 +130,9 @@ export function useScheduleTriggers(params?: {
       await scheduleTriggerRequest<PaginatedResponse<ScheduleTrigger>>(
         `/api/schedule-triggers?${query.toString()}`,
       ),
-    ...(params?.refetchInterval ? { refetchInterval: params.refetchInterval } : {}),
+    ...(params?.refetchInterval
+      ? { refetchInterval: params.refetchInterval }
+      : {}),
   });
 }
 
@@ -155,7 +157,9 @@ export function useScheduleTriggerRuns(
         `/api/schedule-triggers/${triggerId}/runs?${query.toString()}`,
       ),
     enabled: !!triggerId && (params?.enabled ?? true),
-    ...(params?.refetchInterval ? { refetchInterval: params.refetchInterval } : {}),
+    ...(params?.refetchInterval
+      ? { refetchInterval: params.refetchInterval }
+      : {}),
   });
 }
 

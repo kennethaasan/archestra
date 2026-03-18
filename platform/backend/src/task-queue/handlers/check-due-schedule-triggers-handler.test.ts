@@ -67,4 +67,29 @@ describe("handleCheckDueScheduleTriggers", () => {
       tx: expect.anything(),
     });
   });
+
+  test("fetches additional batches without retrying already-processed backlog triggers", async () => {
+    mockFindDueTriggerIds
+      .mockResolvedValueOnce(
+        Array.from({ length: 25 }, (_, index) => `trigger-${index + 1}`),
+      )
+      .mockResolvedValueOnce(["trigger-26"])
+      .mockResolvedValueOnce([]);
+
+    await handleCheckDueScheduleTriggers();
+
+    expect(mockFindDueTriggerIds).toHaveBeenNthCalledWith(1, {
+      now: expect.any(Date),
+      limit: 25,
+      excludeIds: [],
+    });
+    expect(mockFindDueTriggerIds).toHaveBeenNthCalledWith(2, {
+      now: expect.any(Date),
+      limit: 25,
+      excludeIds: Array.from(
+        { length: 25 },
+        (_, index) => `trigger-${index + 1}`,
+      ),
+    });
+  });
 });

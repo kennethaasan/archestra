@@ -58,7 +58,9 @@ export default function AgentTriggersLayout({
   const tabs = useMemo(() => {
     const allTabs = [
       {
-        label: <TabLabel icon={Clock3} label="Schedule" active={scheduleActive} />,
+        label: (
+          <TabLabel icon={Clock3} label="Schedule" active={scheduleActive} />
+        ),
         href: "/agents/triggers/schedule",
         active: scheduleActive,
       },

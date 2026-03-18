@@ -1,6 +1,7 @@
 "use client";
 
 import { DocsPage, getDocsUrl } from "@shared";
+import type { UseMutationResult } from "@tanstack/react-query";
 import {
   AlertCircle,
   CalendarClock,
@@ -17,7 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FormDialog } from "@/components/form-dialog";
 import {
   Accordion,
@@ -116,6 +117,9 @@ export default function ScheduleTriggersPage() {
   );
   const [formState, setFormState] =
     useState<ScheduleTriggerFormState>(DEFAULT_FORM_STATE);
+  const [trackedRunIdsByTrigger, setTrackedRunIdsByTrigger] = useState<
+    Record<string, string>
+  >({});
 
   const triggers = triggersResponse?.data ?? [];
   const enabledCount = triggers.filter((trigger) => trigger.enabled).length;
@@ -178,6 +182,30 @@ export default function ScheduleTriggersPage() {
     if (result) {
       closeDialog(false);
     }
+  };
+
+  const handleRunNow = async (triggerId: string) => {
+    const run = await runNowMutation.mutateAsync(triggerId);
+    if (!run) {
+      return;
+    }
+
+    setTrackedRunIdsByTrigger((current) => ({
+      ...current,
+      [triggerId]: run.id,
+    }));
+  };
+
+  const clearTrackedRun = (triggerId: string, runId: string) => {
+    setTrackedRunIdsByTrigger((current) => {
+      if (current[triggerId] !== runId) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[triggerId];
+      return next;
+    });
   };
 
   const cronPreview = formState.cronExpression.trim()
@@ -276,15 +304,19 @@ export default function ScheduleTriggersPage() {
             <ScheduleTriggerCard
               key={trigger.id}
               trigger={trigger}
-              deletingId={deleteMutation.variables ?? null}
-              enablingId={enableMutation.variables ?? null}
-              disablingId={disableMutation.variables ?? null}
-              runningId={runNowMutation.variables ?? null}
+              deletingId={getActiveMutationVariable(deleteMutation)}
+              enablingId={getActiveMutationVariable(enableMutation)}
+              disablingId={getActiveMutationVariable(disableMutation)}
+              activeMutationTriggerId={getActiveMutationVariable(
+                runNowMutation,
+              )}
+              trackedRunId={trackedRunIdsByTrigger[trigger.id] ?? null}
               onEdit={openEditDialog}
               onDelete={(id) => deleteMutation.mutate(id)}
               onEnable={(id) => enableMutation.mutate(id)}
               onDisable={(id) => disableMutation.mutate(id)}
-              onRunNow={(id) => runNowMutation.mutate(id)}
+              onRunNow={handleRunNow}
+              onTrackedRunSettled={clearTrackedRun}
             />
           ))}
         </div>
@@ -506,39 +538,72 @@ function ScheduleTriggerCard({
   deletingId,
   enablingId,
   disablingId,
-  runningId,
+  activeMutationTriggerId,
+  trackedRunId,
   onEdit,
   onDelete,
   onEnable,
   onDisable,
   onRunNow,
+  onTrackedRunSettled,
 }: {
   trigger: ScheduleTrigger;
   deletingId: string | null;
   enablingId: string | null;
   disablingId: string | null;
-  runningId: string | null;
+  activeMutationTriggerId: string | null;
+  trackedRunId: string | null;
   onEdit: (trigger: ScheduleTrigger) => void;
   onDelete: (id: string) => void;
   onEnable: (id: string) => void;
   onDisable: (id: string) => void;
-  onRunNow: (id: string) => void;
+  onRunNow: (id: string) => Promise<void>;
+  onTrackedRunSettled: (triggerId: string, runId: string) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const trackedRunState = getRunNowTrackingState({
+    activeMutationTriggerId,
+    currentTriggerId: trigger.id,
+    trackedRunId,
+  });
   const { data: runsResponse, isLoading: runsLoading } = useScheduleTriggerRuns(
     trigger.id,
     {
       limit: 10,
       offset: 0,
-      enabled: historyOpen,
-      refetchInterval: historyOpen ? 3_000 : false,
+      enabled: historyOpen || trackedRunState.shouldPollRuns,
+      refetchInterval:
+        historyOpen || trackedRunState.shouldPollRuns ? 3_000 : false,
     },
   );
+  const trackedRun =
+    trackedRunId === null
+      ? null
+      : (runsResponse?.data.find((run) => run.id === trackedRunId) ?? null);
+  const runNowState = getRunNowTrackingState({
+    activeMutationTriggerId,
+    currentTriggerId: trigger.id,
+    trackedRunId,
+    trackedRunStatus: trackedRun?.status,
+  });
   const selectedRun =
     selectedRunId === null
       ? null
       : (runsResponse?.data.find((run) => run.id === selectedRunId) ?? null);
+
+  useEffect(() => {
+    if (!runNowState.shouldClearTrackedRun || !trackedRunId) {
+      return;
+    }
+
+    onTrackedRunSettled(trigger.id, trackedRunId);
+  }, [
+    onTrackedRunSettled,
+    runNowState.shouldClearTrackedRun,
+    trackedRunId,
+    trigger.id,
+  ]);
 
   return (
     <Card>
@@ -571,10 +636,12 @@ function ScheduleTriggerCard({
               permissions={{ agentTrigger: ["update"] }}
               variant="outline"
               size="sm"
-              onClick={() => onRunNow(trigger.id)}
-              disabled={runningId === trigger.id}
+              onClick={() => {
+                void onRunNow(trigger.id);
+              }}
+              disabled={runNowState.isButtonSpinning}
             >
-              {runningId === trigger.id ? (
+              {runNowState.isButtonSpinning ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Play className="mr-2 h-4 w-4" />
@@ -947,6 +1014,61 @@ function buildScheduleTriggerPayload(formState: ScheduleTriggerFormState) {
   }
 
   return payload;
+}
+
+export function getActiveMutationVariable<T>(
+  mutation: Pick<
+    UseMutationResult<unknown, unknown, T, unknown>,
+    "isPending" | "variables"
+  >,
+): T | null {
+  return mutation.isPending ? (mutation.variables ?? null) : null;
+}
+
+export function isScheduleTriggerRunActive(
+  status: ScheduleTriggerRunStatus | null | undefined,
+): boolean {
+  return status === "pending" || status === "running";
+}
+
+export function getRunNowTrackingState(params: {
+  activeMutationTriggerId: string | null;
+  currentTriggerId: string;
+  trackedRunId: string | null;
+  trackedRunStatus?: ScheduleTriggerRunStatus | null;
+}): {
+  isButtonSpinning: boolean;
+  shouldPollRuns: boolean;
+  shouldClearTrackedRun: boolean;
+} {
+  const isMutationPending =
+    params.activeMutationTriggerId === params.currentTriggerId;
+
+  if (!params.trackedRunId) {
+    return {
+      isButtonSpinning: isMutationPending,
+      shouldPollRuns: false,
+      shouldClearTrackedRun: false,
+    };
+  }
+
+  if (params.trackedRunStatus === undefined) {
+    return {
+      isButtonSpinning: true,
+      shouldPollRuns: true,
+      shouldClearTrackedRun: false,
+    };
+  }
+
+  const isTrackedRunActive = isScheduleTriggerRunActive(
+    params.trackedRunStatus,
+  );
+
+  return {
+    isButtonSpinning: isMutationPending || isTrackedRunActive,
+    shouldPollRuns: isTrackedRunActive,
+    shouldClearTrackedRun: !isTrackedRunActive,
+  };
 }
 
 function formatTimestamp(value: string | null): string {

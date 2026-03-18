@@ -1302,7 +1302,9 @@ const chatModelsRoutes: FastifyPluginAsyncZod = async (fastify) => {
 
       await Promise.all(syncPromises);
 
-      await systemKeyManager.syncSystemKeys(organizationId);
+      await systemKeyManager.syncSystemKeysWithOptions(organizationId, {
+        forceRefresh: true,
+      });
 
       logger.info(
         { organizationId, apiKeyCount: apiKeys.length },

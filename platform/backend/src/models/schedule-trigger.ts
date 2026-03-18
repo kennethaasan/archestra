@@ -1,4 +1,13 @@
-import { and, count, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  lte,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import db, { schema, type Transaction } from "@/database";
 import {
   calculateNextDueAt,
@@ -224,16 +233,22 @@ class ScheduleTriggerModel {
   static async findDueTriggerIds(params: {
     now: Date;
     limit: number;
+    excludeIds?: string[];
   }): Promise<string[]> {
+    const filters = [
+      eq(schema.scheduleTriggersTable.enabled, true),
+      lte(schema.scheduleTriggersTable.nextDueAt, params.now),
+    ];
+
+    const excludeIds = params.excludeIds;
+    if (excludeIds && excludeIds.length > 0) {
+      filters.push(notInArray(schema.scheduleTriggersTable.id, excludeIds));
+    }
+
     const result = await db
       .select({ id: schema.scheduleTriggersTable.id })
       .from(schema.scheduleTriggersTable)
-      .where(
-        and(
-          eq(schema.scheduleTriggersTable.enabled, true),
-          lte(schema.scheduleTriggersTable.nextDueAt, params.now),
-        ),
-      )
+      .where(and(...filters))
       .orderBy(schema.scheduleTriggersTable.nextDueAt)
       .limit(params.limit);
 

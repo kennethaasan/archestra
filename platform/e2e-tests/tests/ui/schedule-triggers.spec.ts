@@ -124,9 +124,9 @@ test.describe("Schedule Triggers", () => {
       await expect(runDialog).not.toBeVisible();
 
       await historyToggle.press("Enter");
-      await expect(
-        triggerCard.getByText("No runs recorded yet."),
-      ).toHaveCount(0);
+      await expect(triggerCard.getByText("No runs recorded yet.")).toHaveCount(
+        0,
+      );
     } finally {
       if (triggerId) {
         await apiRequest({

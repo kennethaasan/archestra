@@ -58,11 +58,25 @@ class SystemKeyManager {
    * @param organizationId - The organization to create system keys for
    */
   async syncSystemKeys(organizationId: string): Promise<void> {
-    logger.info({ organizationId }, "Starting system API keys sync");
+    await this.syncSystemKeysWithOptions(organizationId, {});
+  }
+
+  async syncSystemKeysWithOptions(
+    organizationId: string,
+    options: { forceRefresh?: boolean },
+  ): Promise<void> {
+    logger.info(
+      { organizationId, forceRefresh: options.forceRefresh ?? false },
+      "Starting system API keys sync",
+    );
 
     for (const providerConfig of this.keylessProviders) {
       try {
-        await this.syncProviderSystemKey(organizationId, providerConfig);
+        await this.syncProviderSystemKey(
+          organizationId,
+          providerConfig,
+          options,
+        );
       } catch (error) {
         logger.error(
           {
@@ -76,7 +90,10 @@ class SystemKeyManager {
       }
     }
 
-    logger.info({ organizationId }, "Completed system API keys sync");
+    logger.info(
+      { organizationId, forceRefresh: options.forceRefresh ?? false },
+      "Completed system API keys sync",
+    );
   }
 
   /**
@@ -85,6 +102,7 @@ class SystemKeyManager {
   private async syncProviderSystemKey(
     organizationId: string,
     providerConfig: KeylessProviderConfig,
+    options: { forceRefresh?: boolean },
   ): Promise<void> {
     const { provider, name, isEnabled, customFetch } = providerConfig;
     const enabled = isEnabled();
@@ -102,6 +120,7 @@ class SystemKeyManager {
           existingKey.id,
           provider,
           customFetch,
+          options,
         );
       } else {
         // Create new system key
@@ -111,7 +130,12 @@ class SystemKeyManager {
           name,
           provider,
         });
-        await this.syncModelsForSystemKey(newKey.id, provider, customFetch);
+        await this.syncModelsForSystemKey(
+          newKey.id,
+          provider,
+          customFetch,
+          options,
+        );
       }
     } else {
       if (existingKey) {
@@ -133,9 +157,15 @@ class SystemKeyManager {
     apiKeyId: string,
     provider: SupportedProvider,
     customFetch: () => Promise<Array<{ id: string; displayName: string }>>,
+    options: { forceRefresh?: boolean },
   ): Promise<void> {
     try {
-      await this.syncModelsWithCustomFetch(apiKeyId, provider, customFetch);
+      await this.syncModelsWithCustomFetch(
+        apiKeyId,
+        provider,
+        customFetch,
+        options,
+      );
     } catch (error) {
       logger.warn(
         {
@@ -155,6 +185,7 @@ class SystemKeyManager {
     apiKeyId: string,
     provider: SupportedProvider,
     customFetch: () => Promise<Array<{ id: string; displayName: string }>>,
+    options: { forceRefresh?: boolean },
   ): Promise<void> {
     const models = await customFetch();
 
@@ -191,7 +222,9 @@ class SystemKeyManager {
       };
     });
 
-    const upsertedModels = await ModelModel.bulkUpsert(modelsToUpsert);
+    const upsertedModels = options.forceRefresh
+      ? await ModelModel.bulkUpsertFull(modelsToUpsert)
+      : await ModelModel.bulkUpsert(modelsToUpsert);
 
     logger.info(
       { provider, apiKeyId, upsertedCount: upsertedModels.length },
