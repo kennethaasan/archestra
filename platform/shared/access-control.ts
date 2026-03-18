@@ -724,6 +724,9 @@ export const requiredEndpointPermissionsMap: Partial<
   [RouteId.SyncChatModels]: {
     llmProvider: ["update"],
   },
+  [RouteId.SyncChatModelsFull]: {
+    llmProvider: ["update"],
+  },
   [RouteId.UpdateChatMessage]: {
     chat: ["update"],
   },
