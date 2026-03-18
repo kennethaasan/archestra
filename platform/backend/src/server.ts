@@ -590,7 +590,8 @@ const startWebServer = async () => {
     // Seeds DB from env vars on first run, then loads config from DB.
     await chatOpsManager.initialize();
 
-    // Start task queue worker for knowledge base connector syncs and embeddings
+    // Start task queue worker for background jobs such as connector syncs,
+    // embeddings, and scheduled trigger processing.
     // In "web" mode, a separate worker Deployment handles background jobs
     if (shouldRunWorker) {
       registerTaskHandlers(taskQueueService);
