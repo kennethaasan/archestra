@@ -61,7 +61,7 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           // Please keep this class when updating dialog component
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 flex w-full translate-x-[-50%] translate-y-[-50%] flex-col rounded-lg border pt-4 shadow-lg duration-200 max-w-4xl",
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 flex w-full translate-x-[-50%] translate-y-[-50%] flex-col rounded-lg border px-4 pt-4 pb-4 shadow-lg duration-200 max-w-4xl",
           className,
         )}
         {...props}
@@ -86,7 +86,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       className={cn(
-        "flex flex-col gap-2 border-b px-4 pb-4 text-center sm:text-left",
+        "-mx-4 flex flex-col gap-2 border-b px-4 pb-4 text-center sm:text-left",
         className,
       )}
       {...props}
@@ -95,7 +95,16 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
-  return <DialogStickyFooter className={className} {...props} />;
+  return (
+    <div
+      data-slot="dialog-footer"
+      className={cn(
+        "flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-end",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
@@ -103,7 +112,7 @@ function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-body"
       className={cn(
-        "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4",
+        "-mx-4 min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4",
         className,
       )}
       {...props}
@@ -145,9 +154,9 @@ function DialogStickyFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        // Counteract DialogContent padding and keep the footer's inner spacing
-        // consistent on all sides. The pseudo-element masks the scrollbar gutter.
-        "relative mt-4 sticky bottom-0 z-10 rounded-b-lg border-t bg-background px-4 py-3 shadow-[0_-1px_0_0_hsl(var(--border)),0_-12px_24px_-24px_hsl(var(--foreground)/0.3)] [&>*]:relative [&>*]:z-10 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        // Counteract DialogContent padding so sticky footers stay flush with
+        // the dialog edges while preserving the standard inner inset.
+        "-mx-4 relative mt-4 sticky bottom-[-16px] z-10 border-t bg-background px-4 py-3 shadow-[0_-1px_0_0_hsl(var(--border)),0_-12px_24px_-24px_hsl(var(--foreground)/0.3)] [&>*]:relative [&>*]:z-10 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
         className,
       )}
       {...props}
