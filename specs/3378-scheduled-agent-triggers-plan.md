@@ -14,31 +14,6 @@ The implementation should reuse the existing `croner` dependency for cron parsin
 
 The implementation should be developed in these logical slices, but the first submission may still be a single PR if that is faster and easier for maintainers to review end-to-end. The branch and commit history should preserve these boundaries so the work can be split into stacked PRs later if maintainers request it.
 
-## Status In This MR
-
-This MR intentionally ships the full Iteration 1 / MVP scope in one branch rather than as stacked PRs. The slicing below remains useful as a review map, but the actual MR includes work from all four slices.
-
-### Completed In This MR
-
-- Data model, migrations, shared schemas/types, and model coverage for `schedule_triggers` and `schedule_trigger_runs`.
-- Shared task queue integration using new task types for due-checking and scheduled-run execution, without introducing a parallel scheduler/queueing system.
-- Persisted cron scheduling with timezone support, transactional due-slot claiming, immutable run snapshots, and bounded catch-up for missed slots.
-- Schedule trigger APIs for create, read, list, update, delete, enable, disable, run-now, and run-history.
-- Authorization checks combining `agentTrigger:*` permissions with target-agent access checks.
-- Execution through the existing isolated A2A path using the stored trigger actor identity.
-- Schedule UI under `/agents/triggers`, including create/edit flows, enable/disable, run-now, list/history views, live run-history updates, and clickable run details/output.
-- Backend Vitest coverage, frontend Vitest coverage, Playwright coverage, and user-facing docs for the shipped MVP behavior.
-
-### Intentionally Left Out Of This MR
-
-- Additional schedule kinds beyond cron, including one-shot (`at`) and interval (`every`) schedules.
-- Alternative execution modes beyond isolated A2A scheduled runs.
-- Delivery/announcement/webhook options and failure notification routing.
-- Per-trigger retry/backoff policy beyond the shared task queue behavior already used for dispatch.
-- Explicit concurrency policies such as skip/queue/parallel when a prior scheduled run is still active.
-- Richer operational UX such as clone trigger, advanced filtering/search/sorting, and other OpenClaw-parity polish beyond the shipped MVP UI.
-- Retention/pruning controls, dedicated scheduled-run dashboards, and other platform-operations follow-up work.
-
 ### PR 1: Data Model + Migration + Shared Types
 
 - Add `schedule_trigger` and `schedule_trigger_run` entities.
