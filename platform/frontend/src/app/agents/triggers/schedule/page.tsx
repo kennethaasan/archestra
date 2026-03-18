@@ -16,7 +16,9 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
+import type React from "react";
 import { useMemo, useState } from "react";
+import { FormDialog } from "@/components/form-dialog";
 import {
   Accordion,
   AccordionContent,
@@ -25,15 +27,15 @@ import {
 } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { PermissionButton } from "@/components/ui/permission-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  DialogBody,
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -47,6 +49,7 @@ import {
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PermissionButton } from "@/components/ui/permission-button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -84,6 +87,12 @@ const DEFAULT_FORM_STATE = (): ScheduleTriggerFormState => ({
   messageTemplate: "",
   enabled: true,
 });
+
+type AgentOption = {
+  value: string;
+  label: string;
+  description: string;
+};
 
 export default function ScheduleTriggersPage() {
   const { data: triggersResponse, isLoading } = useScheduleTriggers({
@@ -123,6 +132,8 @@ export default function ScheduleTriggersPage() {
     [agents],
   );
 
+  const formPayload = buildScheduleTriggerPayload(formState);
+  const isFormValid = formPayload !== null;
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   const openCreateDialog = () => {
@@ -153,31 +164,16 @@ export default function ScheduleTriggersPage() {
   };
 
   const submitForm = async () => {
-    const payload = {
-      name: formState.name.trim(),
-      agentId: formState.agentId,
-      cronExpression: formState.cronExpression.trim(),
-      timezone: formState.timezone.trim(),
-      messageTemplate: formState.messageTemplate.trim(),
-      enabled: formState.enabled,
-    };
-
-    if (
-      !payload.name ||
-      !payload.agentId ||
-      !payload.cronExpression ||
-      !payload.timezone ||
-      !payload.messageTemplate
-    ) {
+    if (!formPayload) {
       return;
     }
 
     const result = editingTrigger
       ? await updateMutation.mutateAsync({
           id: editingTrigger.id,
-          body: payload,
+          body: formPayload,
         })
-      : await createMutation.mutateAsync(payload);
+      : await createMutation.mutateAsync(formPayload);
 
     if (result) {
       closeDialog(false);
@@ -206,7 +202,10 @@ export default function ScheduleTriggersPage() {
               keeps per-run history for due and manual runs.
             </p>
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <Badge variant="outline" className="border-primary/30 text-primary">
+              <Badge
+                variant="outline"
+                className="border-primary/30 text-primary"
+              >
                 {enabledCount} enabled
               </Badge>
               <span>{triggers.length} total triggers</span>
@@ -221,19 +220,12 @@ export default function ScheduleTriggersPage() {
               </Link>
             </div>
           </div>
-          <PermissionButton
-            permissions={{ agentTrigger: ["create"] }}
+          <ScheduleTriggerCreateButton
+            hasAgents={hasAgents}
             onClick={openCreateDialog}
-            disabled={!hasAgents}
-            tooltip={
-              hasAgents
-                ? undefined
-                : "You need access to at least one internal agent to create a schedule."
-            }
           >
-            <Plus className="mr-2 h-4 w-4" />
             New Schedule
-          </PermissionButton>
+          </ScheduleTriggerCreateButton>
         </CardContent>
       </Card>
 
@@ -270,19 +262,12 @@ export default function ScheduleTriggersPage() {
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <PermissionButton
-              permissions={{ agentTrigger: ["create"] }}
+            <ScheduleTriggerCreateButton
+              hasAgents={hasAgents}
               onClick={openCreateDialog}
-              disabled={!hasAgents}
-              tooltip={
-                hasAgents
-                  ? undefined
-                  : "You need access to at least one internal agent to create a schedule."
-              }
             >
-              <Plus className="mr-2 h-4 w-4" />
               Create Schedule
-            </PermissionButton>
+            </ScheduleTriggerCreateButton>
           </EmptyContent>
         </Empty>
       ) : (
@@ -305,151 +290,214 @@ export default function ScheduleTriggersPage() {
         </div>
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={closeDialog}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editingTrigger ? "Edit Schedule Trigger" : "Create Schedule Trigger"}
-            </DialogTitle>
-            <DialogDescription>
-              Use a 5-field cron expression and a valid IANA timezone. Runs are
-              executed with the stored actor&apos;s agent access.
-            </DialogDescription>
-          </DialogHeader>
+      <FormDialog
+        open={dialogOpen}
+        onOpenChange={closeDialog}
+        title={
+          editingTrigger ? "Edit Schedule Trigger" : "Create Schedule Trigger"
+        }
+        description="Use a 5-field cron expression and a valid IANA timezone. Runs are executed with the stored actor's agent access."
+      >
+        <DialogForm
+          onSubmit={() => {
+            void submitForm();
+          }}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <ScheduleTriggerFormFields
+            formState={formState}
+            agentOptions={agentOptions}
+            agentsLoading={agentsLoading}
+            hasAgents={hasAgents}
+            cronPreview={cronPreview}
+            timezonePreview={timezonePreview}
+            onNameChange={(name) =>
+              setFormState((current) => ({ ...current, name }))
+            }
+            onAgentChange={(agentId) =>
+              setFormState((current) => ({ ...current, agentId }))
+            }
+            onCronExpressionChange={(cronExpression) =>
+              setFormState((current) => ({
+                ...current,
+                cronExpression,
+              }))
+            }
+            onTimezoneChange={(timezone) =>
+              setFormState((current) => ({ ...current, timezone }))
+            }
+            onMessageTemplateChange={(messageTemplate) =>
+              setFormState((current) => ({
+                ...current,
+                messageTemplate,
+              }))
+            }
+            onEnabledChange={(enabled) =>
+              setFormState((current) => ({ ...current, enabled }))
+            }
+          />
 
-          <DialogBody className="grid gap-4 py-2">
-            <div className="grid gap-2">
-              <Label htmlFor="schedule-trigger-name">Trigger name</Label>
-              <Input
-                id="schedule-trigger-name"
-                value={formState.name}
-                onChange={(event) =>
-                  setFormState((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
-                placeholder="Weekday summary"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Target agent</Label>
-              <SearchableSelect
-                value={formState.agentId}
-                onValueChange={(agentId) =>
-                  setFormState((current) => ({ ...current, agentId }))
-                }
-                items={agentOptions}
-                placeholder="Select an internal agent"
-                searchPlaceholder="Search agents..."
-                className="w-full"
-                disabled={agentsLoading || !hasAgents}
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="schedule-trigger-cron">Cron expression</Label>
-                <Input
-                  id="schedule-trigger-cron"
-                  value={formState.cronExpression}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      cronExpression: event.target.value,
-                    }))
-                  }
-                  placeholder="0 9 * * 1-5"
-                />
-                <p className="text-xs text-muted-foreground">
-                  5-field cron only. Preview: {cronPreview}
-                </p>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="schedule-trigger-timezone">Timezone</Label>
-                <Input
-                  id="schedule-trigger-timezone"
-                  value={formState.timezone}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      timezone: event.target.value,
-                    }))
-                  }
-                  placeholder="Europe/Oslo"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {timezonePreview ??
-                    "Use an IANA timezone such as Europe/Oslo or America/New_York."}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="schedule-trigger-message">Message template</Label>
-              <Textarea
-                id="schedule-trigger-message"
-                value={formState.messageTemplate}
-                onChange={(event) =>
-                  setFormState((current) => ({
-                    ...current,
-                    messageTemplate: event.target.value,
-                  }))
-                }
-                placeholder="Review yesterday's failures and send me a short summary."
-                className="min-h-32"
-              />
-              <p className="text-xs text-muted-foreground">
-                This exact message is copied into each run snapshot when the run
-                is created.
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg border px-3 py-3">
-              <div className="space-y-1">
-                <Label htmlFor="schedule-trigger-enabled">Enabled</Label>
-                <p className="text-xs text-muted-foreground">
-                  Disabled triggers keep history but do not create future due
-                  runs.
-                </p>
-              </div>
-              <Switch
-                id="schedule-trigger-enabled"
-                checked={formState.enabled}
-                onCheckedChange={(enabled) =>
-                  setFormState((current) => ({ ...current, enabled }))
-                }
-                />
-              </div>
-          </DialogBody>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => closeDialog(false)}>
+          <DialogFooter className="mt-0">
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => closeDialog(false)}
+            >
               Cancel
             </Button>
             <PermissionButton
               permissions={{
                 agentTrigger: [editingTrigger ? "update" : "create"],
               }}
-              onClick={submitForm}
-              disabled={
-                isSaving ||
-                !formState.name.trim() ||
-                !formState.agentId ||
-                !formState.cronExpression.trim() ||
-                !formState.timezone.trim() ||
-                !formState.messageTemplate.trim()
-              }
+              type="submit"
+              disabled={isSaving || !isFormValid}
             >
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {editingTrigger ? "Save Changes" : "Create Trigger"}
             </PermissionButton>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </DialogForm>
+      </FormDialog>
     </div>
+  );
+}
+
+function ScheduleTriggerCreateButton({
+  hasAgents,
+  onClick,
+  children,
+}: {
+  hasAgents: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <PermissionButton
+      permissions={{ agentTrigger: ["create"] }}
+      onClick={onClick}
+      disabled={!hasAgents}
+      tooltip={
+        hasAgents
+          ? undefined
+          : "You need access to at least one internal agent to create a schedule."
+      }
+    >
+      <Plus className="mr-2 h-4 w-4" />
+      {children}
+    </PermissionButton>
+  );
+}
+
+function ScheduleTriggerFormFields({
+  formState,
+  agentOptions,
+  agentsLoading,
+  hasAgents,
+  cronPreview,
+  timezonePreview,
+  onNameChange,
+  onAgentChange,
+  onCronExpressionChange,
+  onTimezoneChange,
+  onMessageTemplateChange,
+  onEnabledChange,
+}: {
+  formState: ScheduleTriggerFormState;
+  agentOptions: AgentOption[];
+  agentsLoading: boolean;
+  hasAgents: boolean;
+  cronPreview: string;
+  timezonePreview: string | null;
+  onNameChange: (value: string) => void;
+  onAgentChange: (value: string) => void;
+  onCronExpressionChange: (value: string) => void;
+  onTimezoneChange: (value: string) => void;
+  onMessageTemplateChange: (value: string) => void;
+  onEnabledChange: (value: boolean) => void;
+}) {
+  return (
+    <DialogBody className="grid gap-4 py-2">
+      <div className="grid gap-2">
+        <Label htmlFor="schedule-trigger-name">Trigger name</Label>
+        <Input
+          id="schedule-trigger-name"
+          value={formState.name}
+          onChange={(event) => onNameChange(event.target.value)}
+          placeholder="Weekday summary"
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label>Target agent</Label>
+        <SearchableSelect
+          value={formState.agentId}
+          onValueChange={onAgentChange}
+          items={agentOptions}
+          placeholder="Select an internal agent"
+          searchPlaceholder="Search agents..."
+          className="w-full"
+          disabled={agentsLoading || !hasAgents}
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-2">
+          <Label htmlFor="schedule-trigger-cron">Cron expression</Label>
+          <Input
+            id="schedule-trigger-cron"
+            value={formState.cronExpression}
+            onChange={(event) => onCronExpressionChange(event.target.value)}
+            placeholder="0 9 * * 1-5"
+          />
+          <p className="text-xs text-muted-foreground">
+            5-field cron only. Preview: {cronPreview}
+          </p>
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="schedule-trigger-timezone">Timezone</Label>
+          <Input
+            id="schedule-trigger-timezone"
+            value={formState.timezone}
+            onChange={(event) => onTimezoneChange(event.target.value)}
+            placeholder="Europe/Oslo"
+          />
+          <p className="text-xs text-muted-foreground">
+            {timezonePreview ??
+              "Use an IANA timezone such as Europe/Oslo or America/New_York."}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="schedule-trigger-message">Message template</Label>
+        <Textarea
+          id="schedule-trigger-message"
+          value={formState.messageTemplate}
+          onChange={(event) => onMessageTemplateChange(event.target.value)}
+          placeholder="Review yesterday's failures and send me a short summary."
+          className="min-h-32"
+        />
+        <p className="text-xs text-muted-foreground">
+          This exact message is copied into each run snapshot when the run is
+          created.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border px-3 py-3">
+        <div className="space-y-1">
+          <Label htmlFor="schedule-trigger-enabled">Enabled</Label>
+          <p className="text-xs text-muted-foreground">
+            Disabled triggers keep history but do not create future due runs.
+          </p>
+        </div>
+        <Switch
+          id="schedule-trigger-enabled"
+          checked={formState.enabled}
+          onCheckedChange={onEnabledChange}
+        />
+      </div>
+    </DialogBody>
   );
 }
 
@@ -490,7 +538,7 @@ function ScheduleTriggerCard({
   const selectedRun =
     selectedRunId === null
       ? null
-      : runsResponse?.data.find((run) => run.id === selectedRunId) ?? null;
+      : (runsResponse?.data.find((run) => run.id === selectedRunId) ?? null);
 
   return (
     <Card>
@@ -605,7 +653,10 @@ function ScheduleTriggerCard({
               trigger.actor?.name || trigger.actor?.email || trigger.actorUserId
             }
           />
-          <DetailItem label="Next due" value={formatTimestamp(trigger.nextDueAt)} />
+          <DetailItem
+            label="Next due"
+            value={formatTimestamp(trigger.nextDueAt)}
+          />
           <DetailItem
             label="Last completed run"
             value={formatTimestamp(trigger.lastRunAt)}
@@ -616,7 +667,9 @@ function ScheduleTriggerCard({
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Message template
           </p>
-          <p className="whitespace-pre-wrap text-sm">{trigger.messageTemplate}</p>
+          <p className="whitespace-pre-wrap text-sm">
+            {trigger.messageTemplate}
+          </p>
         </div>
 
         {trigger.lastError && (
@@ -675,7 +728,9 @@ function ScheduleTriggerCard({
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>Completed {formatTimestamp(run.completedAt)}</span>
+                        <span>
+                          Completed {formatTimestamp(run.completedAt)}
+                        </span>
                         <span className="inline-flex items-center gap-1 font-medium text-foreground">
                           View details
                           <ChevronRight className="h-3.5 w-3.5" />
@@ -870,6 +925,29 @@ const statusToneMap: Record<
   success: "success",
   failed: "danger",
 };
+
+function buildScheduleTriggerPayload(formState: ScheduleTriggerFormState) {
+  const payload = {
+    name: formState.name.trim(),
+    agentId: formState.agentId,
+    cronExpression: formState.cronExpression.trim(),
+    timezone: formState.timezone.trim(),
+    messageTemplate: formState.messageTemplate.trim(),
+    enabled: formState.enabled,
+  };
+
+  if (
+    !payload.name ||
+    !payload.agentId ||
+    !payload.cronExpression ||
+    !payload.timezone ||
+    !payload.messageTemplate
+  ) {
+    return null;
+  }
+
+  return payload;
+}
 
 function formatTimestamp(value: string | null): string {
   if (!value) {
