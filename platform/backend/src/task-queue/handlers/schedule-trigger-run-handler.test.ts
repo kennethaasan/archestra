@@ -109,6 +109,7 @@ describe("handleScheduleTriggerRunExecution", () => {
         userId: "user-1",
         userIsAgentAdmin: false,
         sessionId: "schedule-trigger-run:run-1",
+        source: "schedule-trigger",
       }),
     );
     expect(mockMarkCompleted).toHaveBeenCalledWith({

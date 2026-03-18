@@ -68,7 +68,7 @@ export async function handleScheduleTriggerRunExecution(
       userIsAgentAdmin,
       sessionId: `schedule-trigger-run:${run.id}`,
       conversationId: `schedule-trigger-run:${run.id}`,
-      source: "api",
+      source: "schedule-trigger",
     });
   } catch (error) {
     status = "failed";

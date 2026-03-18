@@ -1,5 +1,5 @@
 import { INTERACTION_SOURCE_DISPLAY, type InteractionSource } from "@shared";
-import { Database, Globe, Mail } from "lucide-react";
+import { CalendarClock, Database, Globe, Mail } from "lucide-react";
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,7 @@ const SOURCE_ICON: Record<InteractionSource, ReactNode> = {
     />
   ),
   email: <Mail className="h-3 w-3 shrink-0" />,
+  "schedule-trigger": <CalendarClock className="h-3 w-3 shrink-0" />,
   "knowledge:embedding": <Database className="h-3 w-3 shrink-0" />,
   "knowledge:reranker": <Database className="h-3 w-3 shrink-0" />,
   "knowledge:query-expansion": <Database className="h-3 w-3 shrink-0" />,

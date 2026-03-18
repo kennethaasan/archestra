@@ -4,7 +4,6 @@ import { DocsPage, getDocsUrl } from "@shared";
 import type { UseMutationResult } from "@tanstack/react-query";
 import {
   AlertCircle,
-  CalendarClock,
   ChevronRight,
   Clock3,
   ExternalLink,
@@ -19,7 +18,6 @@ import {
 import Link from "next/link";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { FormDialog } from "@/components/form-dialog";
 import {
   Accordion,
   AccordionContent,
@@ -31,23 +29,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  CronExpressionPicker,
+  type CronPresetOption,
+} from "@/components/ui/cron-expression-picker";
+import {
   Dialog,
   DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
-  DialogForm,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PermissionButton } from "@/components/ui/permission-button";
@@ -95,6 +88,14 @@ type AgentOption = {
   description: string;
 };
 
+const SCHEDULE_PRESET_OPTIONS: CronPresetOption[] = [
+  { label: "Weekdays at 09:00", value: "0 9 * * 1-5" },
+  { label: "Every day at 09:00", value: "0 9 * * *" },
+  { label: "Every hour", value: "0 * * * *" },
+  { label: "Every 6 hours", value: "0 */6 * * *" },
+  { label: "Every Monday at 09:00", value: "0 9 * * 1" },
+];
+
 export default function ScheduleTriggersPage() {
   const { data: triggersResponse, isLoading } = useScheduleTriggers({
     limit: 50,
@@ -111,7 +112,7 @@ export default function ScheduleTriggersPage() {
   const disableMutation = useDisableScheduleTrigger();
   const runNowMutation = useRunScheduleTriggerNow();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [createFormOpen, setCreateFormOpen] = useState(false);
   const [editingTrigger, setEditingTrigger] = useState<ScheduleTrigger | null>(
     null,
   );
@@ -123,6 +124,10 @@ export default function ScheduleTriggersPage() {
 
   const triggers = triggersResponse?.data ?? [];
   const enabledCount = triggers.filter((trigger) => trigger.enabled).length;
+  const { enabledTriggers, disabledTriggers } = useMemo(
+    () => partitionScheduleTriggers(triggers),
+    [triggers],
+  );
   const agentOptions = useMemo(
     () =>
       agents.map((agent) => ({
@@ -135,18 +140,30 @@ export default function ScheduleTriggersPage() {
       })),
     [agents],
   );
+  const timezoneOptions = useMemo(
+    () => buildTimezoneOptions(formState.timezone),
+    [formState.timezone],
+  );
 
   const formPayload = buildScheduleTriggerPayload(formState);
   const isFormValid = formPayload !== null;
   const isSaving = createMutation.isPending || updateMutation.isPending;
+  const isEditorOpen =
+    editingTrigger !== null || createFormOpen || triggers.length === 0;
 
-  const openCreateDialog = () => {
+  useEffect(() => {
+    if (!isLoading && triggers.length === 0) {
+      setCreateFormOpen(true);
+    }
+  }, [isLoading, triggers.length]);
+
+  const openCreateEditor = () => {
     setEditingTrigger(null);
     setFormState(DEFAULT_FORM_STATE());
-    setDialogOpen(true);
+    setCreateFormOpen(true);
   };
 
-  const openEditDialog = (trigger: ScheduleTrigger) => {
+  const openEditEditor = (trigger: ScheduleTrigger) => {
     setEditingTrigger(trigger);
     setFormState({
       name: trigger.name,
@@ -156,15 +173,13 @@ export default function ScheduleTriggersPage() {
       messageTemplate: trigger.messageTemplate,
       enabled: trigger.enabled,
     });
-    setDialogOpen(true);
+    setCreateFormOpen(false);
   };
 
-  const closeDialog = (open: boolean) => {
-    setDialogOpen(open);
-    if (!open) {
-      setEditingTrigger(null);
-      setFormState(DEFAULT_FORM_STATE());
-    }
+  const closeEditor = () => {
+    setCreateFormOpen(false);
+    setEditingTrigger(null);
+    setFormState(DEFAULT_FORM_STATE());
   };
 
   const submitForm = async () => {
@@ -180,7 +195,7 @@ export default function ScheduleTriggersPage() {
       : await createMutation.mutateAsync(formPayload);
 
     if (result) {
-      closeDialog(false);
+      closeEditor();
     }
   };
 
@@ -213,6 +228,12 @@ export default function ScheduleTriggersPage() {
     : "Enter a cron expression";
   const timezonePreview = getTimezonePreview(formState.timezone);
   const hasAgents = agentOptions.length > 0;
+  const editorTitle = editingTrigger
+    ? `Editing ${editingTrigger.name}`
+    : "Create schedule";
+  const editorDescription = editingTrigger
+    ? "Change the agent, cadence, timezone, or prompt without leaving the page."
+    : "Pick the agent, cadence, timezone, and prompt. Runs keep the current actor's permissions.";
 
   return (
     <div className="space-y-6">
@@ -248,12 +269,22 @@ export default function ScheduleTriggersPage() {
               </Link>
             </div>
           </div>
-          <ScheduleTriggerCreateButton
-            hasAgents={hasAgents}
-            onClick={openCreateDialog}
-          >
-            New Schedule
-          </ScheduleTriggerCreateButton>
+          {editingTrigger ? (
+            <Button variant="outline" onClick={closeEditor}>
+              Stop Editing
+            </Button>
+          ) : createFormOpen && triggers.length > 0 ? (
+            <Button variant="outline" onClick={closeEditor}>
+              Hide Form
+            </Button>
+          ) : (
+            <ScheduleTriggerCreateButton
+              hasAgents={hasAgents}
+              onClick={openCreateEditor}
+            >
+              New Schedule
+            </ScheduleTriggerCreateButton>
+          )}
         </CardContent>
       </Card>
 
@@ -268,6 +299,72 @@ export default function ScheduleTriggersPage() {
         </Alert>
       )}
 
+      {isEditorOpen && (
+        <Card className="border-primary/20 bg-card/80 shadow-sm">
+          <CardHeader className="gap-2">
+            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-1">
+                <CardTitle>{editorTitle}</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  {editorDescription}
+                </p>
+              </div>
+              {editingTrigger ? (
+                <Badge variant="outline" className="w-fit">
+                  Editing existing trigger
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="w-fit">
+                  New trigger
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ScheduleTriggerFormFields
+              formState={formState}
+              agentOptions={agentOptions}
+              timezoneOptions={timezoneOptions}
+              agentsLoading={agentsLoading}
+              hasAgents={hasAgents}
+              cronPreview={cronPreview}
+              timezonePreview={timezonePreview}
+              isSaving={isSaving}
+              isFormValid={isFormValid}
+              isEditing={editingTrigger !== null}
+              onCancel={triggers.length === 0 ? undefined : closeEditor}
+              onSubmit={() => {
+                void submitForm();
+              }}
+              onNameChange={(name) =>
+                setFormState((current) => ({ ...current, name }))
+              }
+              onAgentChange={(agentId) =>
+                setFormState((current) => ({ ...current, agentId }))
+              }
+              onCronExpressionChange={(cronExpression) =>
+                setFormState((current) => ({
+                  ...current,
+                  cronExpression,
+                }))
+              }
+              onTimezoneChange={(timezone) =>
+                setFormState((current) => ({ ...current, timezone }))
+              }
+              onMessageTemplateChange={(messageTemplate) =>
+                setFormState((current) => ({
+                  ...current,
+                  messageTemplate,
+                }))
+              }
+              onEnabledChange={(enabled) =>
+                setFormState((current) => ({ ...current, enabled }))
+              }
+            />
+          </CardContent>
+        </Card>
+      )}
+
       {isLoading ? (
         <Card>
           <CardContent className="flex h-32 items-center justify-center gap-2">
@@ -277,120 +374,93 @@ export default function ScheduleTriggersPage() {
             </span>
           </CardContent>
         </Card>
-      ) : triggers.length === 0 ? (
-        <Empty className="border border-dashed bg-card/40">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <CalendarClock />
-            </EmptyMedia>
-            <EmptyTitle>No schedule triggers yet</EmptyTitle>
-            <EmptyDescription>
-              Create a cron-based trigger to run an internal agent without a
-              chat channel.
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <ScheduleTriggerCreateButton
-              hasAgents={hasAgents}
-              onClick={openCreateDialog}
-            >
-              Create Schedule
-            </ScheduleTriggerCreateButton>
-          </EmptyContent>
-        </Empty>
-      ) : (
+      ) : triggers.length === 0 ? null : (
         <div className="space-y-4">
-          {triggers.map((trigger) => (
-            <ScheduleTriggerCard
-              key={trigger.id}
-              trigger={trigger}
-              deletingId={getActiveMutationVariable(deleteMutation)}
-              enablingId={getActiveMutationVariable(enableMutation)}
-              disablingId={getActiveMutationVariable(disableMutation)}
-              activeMutationTriggerId={getActiveMutationVariable(
-                runNowMutation,
-              )}
-              trackedRunId={trackedRunIdsByTrigger[trigger.id] ?? null}
-              onEdit={openEditDialog}
-              onDelete={(id) => deleteMutation.mutate(id)}
-              onEnable={(id) => enableMutation.mutate(id)}
-              onDisable={(id) => disableMutation.mutate(id)}
-              onRunNow={handleRunNow}
-              onTrackedRunSettled={clearTrackedRun}
-            />
-          ))}
+          {enabledTriggers.length > 0 && (
+            <ScheduleTriggerSection
+              title="Running schedules"
+              description="These are the enabled schedules."
+              count={enabledTriggers.length}
+            >
+              {enabledTriggers.map((trigger) => (
+                <ScheduleTriggerCard
+                  key={trigger.id}
+                  trigger={trigger}
+                  deletingId={getActiveMutationVariable(deleteMutation)}
+                  enablingId={getActiveMutationVariable(enableMutation)}
+                  disablingId={getActiveMutationVariable(disableMutation)}
+                  activeMutationTriggerId={getActiveMutationVariable(
+                    runNowMutation,
+                  )}
+                  trackedRunId={trackedRunIdsByTrigger[trigger.id] ?? null}
+                  onEdit={openEditEditor}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                  onEnable={(id) => enableMutation.mutate(id)}
+                  onDisable={(id) => disableMutation.mutate(id)}
+                  onRunNow={handleRunNow}
+                  onTrackedRunSettled={clearTrackedRun}
+                />
+              ))}
+            </ScheduleTriggerSection>
+          )}
+
+          {disabledTriggers.length > 0 && (
+            <ScheduleTriggerSection
+              title="Paused schedules"
+              description="Paused schedules keep their run history and stay ready for a one-click resume."
+              count={disabledTriggers.length}
+            >
+              {disabledTriggers.map((trigger) => (
+                <ScheduleTriggerCard
+                  key={trigger.id}
+                  trigger={trigger}
+                  deletingId={getActiveMutationVariable(deleteMutation)}
+                  enablingId={getActiveMutationVariable(enableMutation)}
+                  disablingId={getActiveMutationVariable(disableMutation)}
+                  activeMutationTriggerId={getActiveMutationVariable(
+                    runNowMutation,
+                  )}
+                  trackedRunId={trackedRunIdsByTrigger[trigger.id] ?? null}
+                  onEdit={openEditEditor}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                  onEnable={(id) => enableMutation.mutate(id)}
+                  onDisable={(id) => disableMutation.mutate(id)}
+                  onRunNow={handleRunNow}
+                  onTrackedRunSettled={clearTrackedRun}
+                />
+              ))}
+            </ScheduleTriggerSection>
+          )}
         </div>
       )}
-
-      <FormDialog
-        open={dialogOpen}
-        onOpenChange={closeDialog}
-        title={
-          editingTrigger ? "Edit Schedule Trigger" : "Create Schedule Trigger"
-        }
-        description="Use a 5-field cron expression and a valid IANA timezone. Runs are executed with the stored actor's agent access."
-      >
-        <DialogForm
-          onSubmit={() => {
-            void submitForm();
-          }}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          <ScheduleTriggerFormFields
-            formState={formState}
-            agentOptions={agentOptions}
-            agentsLoading={agentsLoading}
-            hasAgents={hasAgents}
-            cronPreview={cronPreview}
-            timezonePreview={timezonePreview}
-            onNameChange={(name) =>
-              setFormState((current) => ({ ...current, name }))
-            }
-            onAgentChange={(agentId) =>
-              setFormState((current) => ({ ...current, agentId }))
-            }
-            onCronExpressionChange={(cronExpression) =>
-              setFormState((current) => ({
-                ...current,
-                cronExpression,
-              }))
-            }
-            onTimezoneChange={(timezone) =>
-              setFormState((current) => ({ ...current, timezone }))
-            }
-            onMessageTemplateChange={(messageTemplate) =>
-              setFormState((current) => ({
-                ...current,
-                messageTemplate,
-              }))
-            }
-            onEnabledChange={(enabled) =>
-              setFormState((current) => ({ ...current, enabled }))
-            }
-          />
-
-          <DialogFooter className="mt-0">
-            <Button
-              variant="outline"
-              type="button"
-              onClick={() => closeDialog(false)}
-            >
-              Cancel
-            </Button>
-            <PermissionButton
-              permissions={{
-                agentTrigger: [editingTrigger ? "update" : "create"],
-              }}
-              type="submit"
-              disabled={isSaving || !isFormValid}
-            >
-              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {editingTrigger ? "Save Changes" : "Create Trigger"}
-            </PermissionButton>
-          </DialogFooter>
-        </DialogForm>
-      </FormDialog>
     </div>
+  );
+}
+
+function ScheduleTriggerSection({
+  title,
+  description,
+  count,
+  children,
+}: {
+  title: string;
+  description: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+        <Badge variant="outline" className="w-fit">
+          {count} {count === 1 ? "trigger" : "triggers"}
+        </Badge>
+      </div>
+      <div className="space-y-4">{children}</div>
+    </section>
   );
 }
 
@@ -423,10 +493,16 @@ function ScheduleTriggerCreateButton({
 function ScheduleTriggerFormFields({
   formState,
   agentOptions,
+  timezoneOptions,
   agentsLoading,
   hasAgents,
   cronPreview,
   timezonePreview,
+  isSaving,
+  isFormValid,
+  isEditing,
+  onCancel,
+  onSubmit,
   onNameChange,
   onAgentChange,
   onCronExpressionChange,
@@ -436,10 +512,16 @@ function ScheduleTriggerFormFields({
 }: {
   formState: ScheduleTriggerFormState;
   agentOptions: AgentOption[];
+  timezoneOptions: AgentOption[];
   agentsLoading: boolean;
   hasAgents: boolean;
   cronPreview: string;
   timezonePreview: string | null;
+  isSaving: boolean;
+  isFormValid: boolean;
+  isEditing: boolean;
+  onCancel?: () => void;
+  onSubmit: () => void;
   onNameChange: (value: string) => void;
   onAgentChange: (value: string) => void;
   onCronExpressionChange: (value: string) => void;
@@ -448,55 +530,72 @@ function ScheduleTriggerFormFields({
   onEnabledChange: (value: boolean) => void;
 }) {
   return (
-    <DialogBody className="grid gap-4 py-2">
-      <div className="grid gap-2">
-        <Label htmlFor="schedule-trigger-name">Trigger name</Label>
-        <Input
-          id="schedule-trigger-name"
-          value={formState.name}
-          onChange={(event) => onNameChange(event.target.value)}
-          placeholder="Weekday summary"
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label>Target agent</Label>
-        <SearchableSelect
-          value={formState.agentId}
-          onValueChange={onAgentChange}
-          items={agentOptions}
-          placeholder="Select an internal agent"
-          searchPlaceholder="Search agents..."
-          className="w-full"
-          disabled={agentsLoading || !hasAgents}
-        />
-      </div>
-
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+      className="grid gap-6"
+    >
       <div className="grid gap-4 md:grid-cols-2">
         <div className="grid gap-2">
-          <Label htmlFor="schedule-trigger-cron">Cron expression</Label>
+          <Label htmlFor="schedule-trigger-name">Trigger name</Label>
           <Input
-            id="schedule-trigger-cron"
-            value={formState.cronExpression}
-            onChange={(event) => onCronExpressionChange(event.target.value)}
-            placeholder="0 9 * * 1-5"
+            id="schedule-trigger-name"
+            value={formState.name}
+            onChange={(event) => onNameChange(event.target.value)}
+            placeholder="Weekday summary"
           />
           <p className="text-xs text-muted-foreground">
-            5-field cron only. Preview: {cronPreview}
+            Use a short name that is easy to scan in a long list.
           </p>
         </div>
 
         <div className="grid gap-2">
-          <Label htmlFor="schedule-trigger-timezone">Timezone</Label>
-          <Input
-            id="schedule-trigger-timezone"
+          <Label>Target agent</Label>
+          <SearchableSelect
+            value={formState.agentId}
+            onValueChange={onAgentChange}
+            items={agentOptions}
+            placeholder="Select an internal agent"
+            searchPlaceholder="Search agents..."
+            className="w-full"
+            disabled={agentsLoading || !hasAgents}
+          />
+          <p className="text-xs text-muted-foreground">
+            Schedule triggers only run internal agents you can already access.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 md:items-start">
+        <div className="grid gap-2">
+          <Label>Schedule</Label>
+          <CronExpressionPicker
+            value={formState.cronExpression}
+            onChange={onCronExpressionChange}
+            presets={SCHEDULE_PRESET_OPTIONS}
+            customPlaceholder="0 9 * * 1-5"
+            descriptionFallback="Use a preset or enter a custom 5-field cron expression."
+          />
+          <p className="text-xs text-muted-foreground">
+            Preview: {cronPreview}
+          </p>
+        </div>
+
+        <div className="grid gap-2">
+          <Label>Timezone</Label>
+          <SearchableSelect
             value={formState.timezone}
-            onChange={(event) => onTimezoneChange(event.target.value)}
-            placeholder="Europe/Oslo"
+            onValueChange={onTimezoneChange}
+            items={timezoneOptions}
+            placeholder="UTC"
+            searchPlaceholder="Search timezones"
+            className="w-full"
           />
           <p className="text-xs text-muted-foreground">
             {timezonePreview ??
-              "Use an IANA timezone such as Europe/Oslo or America/New_York."}
+              "Use an IANA timezone such as UTC or America/New_York."}
           </p>
         </div>
       </div>
@@ -511,16 +610,16 @@ function ScheduleTriggerFormFields({
           className="min-h-32"
         />
         <p className="text-xs text-muted-foreground">
-          This exact message is copied into each run snapshot when the run is
-          created.
+          This exact prompt is copied into every queued run.
         </p>
       </div>
 
-      <div className="flex items-center justify-between rounded-lg border px-3 py-3">
+      <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 px-4 py-4 md:flex-row md:items-center md:justify-between">
         <div className="space-y-1">
           <Label htmlFor="schedule-trigger-enabled">Enabled</Label>
           <p className="text-xs text-muted-foreground">
-            Disabled triggers keep history but do not create future due runs.
+            Disabled triggers stay visible and keep their history, but they do
+            not queue future runs.
           </p>
         </div>
         <Switch
@@ -529,7 +628,25 @@ function ScheduleTriggerFormFields({
           onCheckedChange={onEnabledChange}
         />
       </div>
-    </DialogBody>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        {onCancel && (
+          <Button variant="outline" type="button" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
+        <PermissionButton
+          permissions={{
+            agentTrigger: [isEditing ? "update" : "create"],
+          }}
+          type="submit"
+          disabled={isSaving || !isFormValid}
+        >
+          {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {isEditing ? "Save changes" : "Create trigger"}
+        </PermissionButton>
+      </div>
+    </form>
   );
 }
 
@@ -1016,6 +1133,67 @@ function buildScheduleTriggerPayload(formState: ScheduleTriggerFormState) {
   return payload;
 }
 
+export function partitionScheduleTriggers(triggers: ScheduleTrigger[]) {
+  return {
+    enabledTriggers: triggers.filter((trigger) => trigger.enabled),
+    disabledTriggers: triggers.filter((trigger) => !trigger.enabled),
+  };
+}
+
+export function buildTimezoneOptions(timezone: string): AgentOption[] {
+  const browserTimezone =
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const currentValue = timezone.trim() || browserTimezone;
+  const supportedTimezones = getSupportedTimezones();
+  const prioritizedValues = [
+    browserTimezone,
+    "UTC",
+    currentValue,
+    ...supportedTimezones,
+  ];
+
+  return prioritizedValues.reduce<AgentOption[]>((options, value) => {
+    if (!value || options.some((option) => option.value === value)) {
+      return options;
+    }
+
+    options.push({
+      value,
+      label: value,
+      description:
+        value === browserTimezone
+          ? "Current browser timezone"
+          : value === "UTC"
+            ? "Coordinated Universal Time"
+            : value === currentValue && currentValue !== browserTimezone
+              ? "Current value"
+              : "IANA timezone",
+    });
+
+    return options;
+  }, []);
+}
+
+function getSupportedTimezones(): string[] {
+  if (typeof Intl.supportedValuesOf === "function") {
+    return Intl.supportedValuesOf("timeZone");
+  }
+
+  return [
+    "UTC",
+    "Africa/Johannesburg",
+    "America/Chicago",
+    "America/Los_Angeles",
+    "America/New_York",
+    "Asia/Dubai",
+    "Asia/Singapore",
+    "Asia/Tokyo",
+    "Australia/Sydney",
+    "Europe/London",
+    "Europe/Oslo",
+  ];
+}
+
 export function getActiveMutationVariable<T>(
   mutation: Pick<
     UseMutationResult<unknown, unknown, T, unknown>,
@@ -1079,7 +1257,7 @@ function formatTimestamp(value: string | null): string {
   return new Date(value).toLocaleString();
 }
 
-function getTimezonePreview(timezone: string): string | null {
+export function getTimezonePreview(timezone: string): string | null {
   const normalized = timezone.trim();
   if (!normalized) {
     return null;
@@ -1092,7 +1270,7 @@ function getTimezonePreview(timezone: string): string | null {
       timeZone: normalized,
     }).format(new Date())}`;
   } catch {
-    return "Timezone must be a valid IANA value such as Europe/Oslo.";
+    return "Timezone must be a valid IANA value such as UTC or America/New_York.";
   }
 }
 

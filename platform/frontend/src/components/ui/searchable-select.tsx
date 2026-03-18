@@ -83,8 +83,8 @@ export function SearchableSelect({
           disabled={disabled}
           className={cn(
             multiline
-              ? "h-auto min-h-9 w-[200px] justify-between py-2 font-normal"
-              : "h-9 w-[200px] justify-between font-normal",
+              ? "border-input h-auto min-h-9 w-[200px] justify-between bg-transparent py-2 font-normal shadow-xs hover:bg-transparent hover:text-foreground"
+              : "border-input h-9 w-[200px] justify-between bg-transparent font-normal shadow-xs hover:bg-transparent hover:text-foreground",
             !value && "text-muted-foreground",
             className,
           )}
@@ -153,7 +153,7 @@ export function SearchableSelect({
                 }}
                 className={cn(
                   "relative flex w-full cursor-default select-none items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground",
-                  value === item.value && "bg-accent text-accent-foreground",
+                  value === item.value && "bg-accent/50",
                 )}
               >
                 <span className="min-w-0 flex-1">

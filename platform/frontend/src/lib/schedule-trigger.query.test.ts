@@ -1,8 +1,11 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
+  buildTimezoneOptions,
   getActiveMutationVariable,
   getRunNowTrackingState,
+  getTimezonePreview,
   isScheduleTriggerRunActive,
+  partitionScheduleTriggers,
 } from "../app/agents/triggers/schedule/page";
 import {
   getScheduleTriggerListQueryParams,
@@ -105,5 +108,61 @@ describe("getRunNowTrackingState", () => {
       shouldPollRuns: false,
       shouldClearTrackedRun: true,
     });
+  });
+});
+
+describe("partitionScheduleTriggers", () => {
+  test("keeps enabled triggers ahead of paused triggers", () => {
+    const { enabledTriggers, disabledTriggers } = partitionScheduleTriggers([
+      {
+        id: "paused-trigger",
+        enabled: false,
+      } as never,
+      {
+        id: "enabled-trigger",
+        enabled: true,
+      } as never,
+    ]);
+
+    expect(enabledTriggers.map((trigger) => trigger.id)).toEqual([
+      "enabled-trigger",
+    ]);
+    expect(disabledTriggers.map((trigger) => trigger.id)).toEqual([
+      "paused-trigger",
+    ]);
+  });
+});
+
+describe("buildTimezoneOptions", () => {
+  test("puts UTC immediately after the system timezone and includes the current value", () => {
+    const dateTimeFormatSpy = vi
+      .spyOn(Intl, "DateTimeFormat")
+      .mockImplementation(
+        () =>
+          ({
+            resolvedOptions: () => ({ timeZone: "America/Los_Angeles" }),
+          }) as Intl.DateTimeFormat,
+      );
+
+    const supportedValuesSpy = vi
+      .spyOn(Intl, "supportedValuesOf")
+      .mockReturnValue(["UTC", "America/New_York", "Europe/Oslo"]);
+
+    const options = buildTimezoneOptions("Europe/Oslo");
+
+    expect(options[0]?.value).toBe("America/Los_Angeles");
+    expect(options[1]?.value).toBe("UTC");
+    expect(options.map((option) => option.value)).toContain("Europe/Oslo");
+
+    dateTimeFormatSpy.mockRestore();
+    supportedValuesSpy.mockRestore();
+  });
+});
+
+describe("getTimezonePreview", () => {
+  test("uses UTC and New York in the validation guidance", () => {
+    expect(getTimezonePreview("Not/A_Timezone")).toBe(
+      "Timezone must be a valid IANA value such as UTC or America/New_York.",
+    );
   });
 });
