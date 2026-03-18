@@ -6,9 +6,9 @@ Issue: https://github.com/archestra-ai/archestra/issues/3378
 
 Implement scheduled agent triggers with an OpenClaw-like UX, adapted to Archestra architecture (permissions, trigger tabs, task queue, and agent execution paths).
 
-This feature uses the OpenClaw cron-job model as inspiration, but adapts it to Archestra's multi-user permission model, existing `/agents/triggers` UI, task queue, and A2A execution path.
+This feature uses the OpenClaw cron-job model as inspiration, but adapts it to Archestra's multi-user permission model, existing `/agents/triggers` UI, the shared Postgres-backed task queue/worker, and the existing A2A execution path.
 
-The implementation should reuse the existing `croner` dependency for cron parsing and next-occurrence calculation, but it should not introduce a long-lived in-memory scheduler registry or singleton scheduler as the source of truth. Distributed scheduling state must remain persisted in the database and driven by the task queue.
+The implementation should reuse the existing `croner` dependency for cron parsing and next-occurrence calculation, and it should reuse the existing background task queue/worker for both due-checking and execution. It should not introduce a long-lived in-memory scheduler registry, singleton scheduler, or parallel queueing mechanism as the source of truth. Distributed scheduling state must remain persisted in the database and driven by the task queue plus persisted trigger/run rows.
 
 ## Review-Friendly PR Slicing
 
@@ -50,9 +50,10 @@ The implementation should be developed in these logical slices, but the first su
 ### PR 2: Scheduler Engine + Task Queue Integration
 
 - Add periodic due-check task (similar to `check_due_connectors`) named `check_due_schedule_triggers`.
+- Reuse the existing `tasks` table, queue worker, handler registration, retry/backoff behavior, and periodic-task seeding flow; scheduled triggers should add task types to that mechanism rather than introducing a new scheduler service.
 - Use persisted `nextDueAt` as the source of truth for due-checking.
 - Use `croner` only to validate cron expressions and compute the next due occurrence in the stored timezone.
-- Do not keep trigger ownership or scheduling state in memory across process lifetime; the task queue plus persisted trigger/run rows remain the authoritative mechanism.
+- Do not keep trigger ownership or scheduling state in memory across process lifetime; the shared task queue plus persisted trigger/run rows remain the authoritative mechanism.
 - Require transactional due-slot claiming:
   - lock/claim trigger rows before creating due runs (`FOR UPDATE SKIP LOCKED` or equivalent compare-and-swap update)
   - insert the due-run row and advance `nextDueAt` in the same transaction
@@ -60,9 +61,10 @@ The implementation should be developed in these logical slices, but the first su
 - Add due-run creation flow:
   - select enabled triggers with `nextDueAt <= now`
   - create a `schedule_trigger_run` row for that exact due slot, including the immutable execution snapshot
-  - enqueue an execution task for the new run
+  - enqueue an execution task for the new run through the existing task queue
   - advance `nextDueAt` to the next cron occurrence in the stored timezone
 - Add idempotent enqueue behavior and duplicate prevention using the run row uniqueness constraint.
+- Be explicit that this is not the same dedupe shape as connector syncs: connectors avoid duplicate pending tasks per connector, while scheduled triggers must persist one run row per due slot/manual invocation so they can preserve immutable snapshots, audit history, and catch-up behavior.
 - Add catch-up behavior for downtime:
   - enqueue one run per missed due slot
   - do not collapse missed slots into one synthetic run
@@ -207,7 +209,8 @@ Each persisted run must also store the immutable execution payload that will act
 
 ### Scheduled execution model
 
-- Scheduled runs execute through the existing isolated A2A execution path.
+- Scheduled runs are created and dispatched through the existing shared task queue/worker, then execute through the existing isolated A2A execution path.
+- The new queue integration is additive, not parallel: the only new pieces are task types and persisted `schedule_trigger_runs` records needed for schedule-specific semantics.
 - Each run uses the run snapshot's stored `actorUserIdSnapshot` as the execution identity.
 - Scheduled runs use a dedicated isolated session id for traceability.
 - Scheduled runs must resolve MCP/tool/API-key access using the stored actor's real access scope.
