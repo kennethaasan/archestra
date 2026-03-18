@@ -12,6 +12,7 @@ export const DocsPage = {
   PlatformAccessControl: "platform-access-control",
   PlatformAddingLlmProviders: "platform-adding-llm-providers",
   PlatformAgentTriggersEmail: "platform-agent-triggers-email",
+  PlatformAgentTriggersSchedule: "platform-agent-triggers-schedule",
   PlatformAgents: "platform-agents",
   PlatformApiReference: "platform-api-reference",
   PlatformBuiltInAgentsPolicyConfig: "platform-built-in-agents-policy-config",

@@ -1,6 +1,6 @@
 "use client";
 
-import { Mail } from "lucide-react";
+import { Clock3, Mail } from "lucide-react";
 import { useMemo } from "react";
 import { PageLayout } from "@/components/page-layout";
 import { useHasPermissions } from "@/lib/auth.query";
@@ -49,6 +49,7 @@ export default function AgentTriggersLayout({
     agentTrigger: ["read"],
   });
   const {
+    schedule: scheduleActive,
     msTeams: msTeamsActive,
     slack: slackActive,
     email: emailActive,
@@ -56,6 +57,11 @@ export default function AgentTriggersLayout({
 
   const tabs = useMemo(() => {
     const allTabs = [
+      {
+        label: <TabLabel icon={Clock3} label="Schedule" active={scheduleActive} />,
+        href: "/agents/triggers/schedule",
+        active: scheduleActive,
+      },
       {
         label: (
           <TabLabel
@@ -87,7 +93,7 @@ export default function AgentTriggersLayout({
 
     // Sort: active tabs first
     return allTabs.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0));
-  }, [msTeamsActive, slackActive, emailActive]);
+  }, [scheduleActive, msTeamsActive, slackActive, emailActive]);
 
   if (canUpdate === false) {
     return null;
@@ -96,7 +102,7 @@ export default function AgentTriggersLayout({
   return (
     <PageLayout
       title="Triggers"
-      description="Manage how your agents connect to messaging channels"
+      description="Manage how agents are invoked through schedules and messaging channels"
       tabs={tabs}
     >
       {children}

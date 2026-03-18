@@ -48,6 +48,7 @@ export { default as oauthServerRoutes } from "./oauth-server";
 export { default as optimizationRuleRoutes } from "./optimization-rule";
 export { default as organizationRoutes } from "./organization";
 export { default as organizationRoleRoutes } from "./organization-role";
+export { default as scheduleTriggerRoutes } from "./schedule-trigger";
 // Proxy routes
 export const anthropicProxyRoutes = anthropicProxyRoutesV2;
 export const cerebrasProxyRoutes = cerebrasProxyRoutesV2;

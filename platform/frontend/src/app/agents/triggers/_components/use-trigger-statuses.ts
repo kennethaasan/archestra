@@ -3,6 +3,7 @@ import { useChatOpsStatus } from "@/lib/chatops.query";
 import config from "@/lib/config";
 import { useConfig } from "@/lib/config.query";
 import { useIncomingEmailStatus } from "@/lib/incoming-email.query";
+import { useHasActiveScheduleTriggers } from "@/lib/schedule-trigger.query";
 
 export function useTriggerStatuses() {
   const { data: chatOpsProviders, isLoading: chatOpsLoading } =
@@ -10,6 +11,8 @@ export function useTriggerStatuses() {
   const { data: configData, isLoading: featuresLoading } = useConfig();
   const { data: emailStatus, isLoading: emailLoading } =
     useIncomingEmailStatus();
+  const { data: scheduleActive = false, isLoading: scheduleLoading } =
+    useHasActiveScheduleTriggers();
   const { data: chatApiKeys = [], isLoading: apiKeysLoading } =
     useChatApiKeys();
 
@@ -36,6 +39,7 @@ export function useTriggerStatuses() {
     !!configData?.features.incomingEmail?.enabled && !!emailStatus?.isActive;
 
   const triggers = [
+    { active: scheduleActive, href: "/agents/triggers/schedule" },
     { active: msTeamsActive, href: "/agents/triggers/ms-teams" },
     { active: slackActive, href: "/agents/triggers/slack" },
     { active: emailActive, href: "/agents/triggers/email" },
@@ -44,11 +48,16 @@ export function useTriggerStatuses() {
     triggers.find((t) => t.active)?.href ?? triggers[0].href;
 
   return {
+    schedule: scheduleActive,
     msTeams: msTeamsActive,
     slack: slackActive,
     email: emailActive,
     firstActiveHref,
     isLoading:
-      chatOpsLoading || featuresLoading || emailLoading || apiKeysLoading,
+      chatOpsLoading ||
+      featuresLoading ||
+      emailLoading ||
+      apiKeysLoading ||
+      scheduleLoading,
   };
 }

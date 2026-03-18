@@ -394,6 +394,33 @@ export const requiredEndpointPermissionsMap: Partial<
   // Labels are cross-type — any agent-type read permission suffices (checked in handler)
   [RouteId.GetLabelKeys]: {},
   [RouteId.GetLabelValues]: {},
+  [RouteId.GetScheduleTriggers]: {
+    agentTrigger: ["read"],
+  },
+  [RouteId.CreateScheduleTrigger]: {
+    agentTrigger: ["create"],
+  },
+  [RouteId.GetScheduleTrigger]: {
+    agentTrigger: ["read"],
+  },
+  [RouteId.UpdateScheduleTrigger]: {
+    agentTrigger: ["update"],
+  },
+  [RouteId.DeleteScheduleTrigger]: {
+    agentTrigger: ["delete"],
+  },
+  [RouteId.EnableScheduleTrigger]: {
+    agentTrigger: ["update"],
+  },
+  [RouteId.DisableScheduleTrigger]: {
+    agentTrigger: ["update"],
+  },
+  [RouteId.RunScheduleTriggerNow]: {
+    agentTrigger: ["update"],
+  },
+  [RouteId.GetScheduleTriggerRuns]: {
+    agentTrigger: ["read"],
+  },
   [RouteId.GetTokens]: {
     team: ["read"],
   },
@@ -986,6 +1013,7 @@ export const requiredPagePermissionsMap: Record<string, Permissions> = {
   // Agents
   "/agents": { agent: ["read"] },
   "/agents/triggers": { agentTrigger: ["read"] },
+  "/agents/triggers/schedule": { agentTrigger: ["read"] },
   "/agents/triggers/slack": { agentTrigger: ["read"] },
   "/agents/triggers/ms-teams": { agentTrigger: ["read"] },
   "/agents/triggers/email": { agentTrigger: ["read"] },
