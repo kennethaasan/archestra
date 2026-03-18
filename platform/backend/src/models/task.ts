@@ -1,10 +1,13 @@
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
-import db, { schema } from "@/database";
+import db, { schema, type Transaction } from "@/database";
 import type { InsertTask, Task } from "@/types";
 
 class TaskModel {
-  static async create(data: InsertTask): Promise<Task> {
-    const [result] = await db
+  static async create(
+    data: InsertTask,
+    txOrDb: Transaction | typeof db = db,
+  ): Promise<Task> {
+    const [result] = await txOrDb
       .insert(schema.tasksTable)
       .values(data)
       .returning();

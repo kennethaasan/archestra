@@ -1,8 +1,10 @@
 import config from "@/config";
+import type { Transaction } from "@/database";
 import logger from "@/logging";
 import { TaskModel } from "@/models";
 import * as metrics from "@/observability/metrics";
 import type { InsertTask, Task, TaskHandler } from "@/types";
+import { TASK_QUEUE_STUCK_TIMEOUT_MS } from "./constants";
 import PERIODIC_TASK_DEFINITIONS from "./periodic-tasks";
 
 export class TaskQueueService {
@@ -23,14 +25,18 @@ export class TaskQueueService {
     maxAttempts?: number;
     scheduledFor?: Date;
     periodic?: boolean;
+    tx?: Transaction;
   }): Promise<string> {
-    const task = await TaskModel.create({
-      taskType: params.taskType,
-      payload: params.payload,
-      maxAttempts: params.maxAttempts ?? 5,
-      ...(params.scheduledFor && { scheduledFor: params.scheduledFor }),
-      ...(params.periodic && { periodic: params.periodic }),
-    });
+    const task = await TaskModel.create(
+      {
+        taskType: params.taskType,
+        payload: params.payload,
+        maxAttempts: params.maxAttempts ?? 5,
+        ...(params.scheduledFor && { scheduledFor: params.scheduledFor }),
+        ...(params.periodic && { periodic: params.periodic }),
+      },
+      params.tx,
+    );
     metrics.taskQueue.reportTaskEnqueued(params.taskType);
     logger.debug(
       { taskId: task.id, taskType: params.taskType },
@@ -156,7 +162,9 @@ export class TaskQueueService {
     if (this.activeTaskIds.size >= config.kb.taskWorkerMaxConcurrent) return;
 
     // Reset stuck tasks (processing for more than 1 hour)
-    const resetCount = await TaskModel.resetStuckTasks(60 * 60 * 1000);
+    const resetCount = await TaskModel.resetStuckTasks(
+      TASK_QUEUE_STUCK_TIMEOUT_MS,
+    );
     if (resetCount > 0) {
       metrics.taskQueue.reportStuckTasksReset(resetCount);
       logger.warn({ resetCount }, "[TaskQueue] Reset stuck tasks");

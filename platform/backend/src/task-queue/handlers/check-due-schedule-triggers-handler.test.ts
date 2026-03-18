@@ -1,20 +1,17 @@
 import { vi } from "vitest";
 import { beforeEach, describe, expect, test } from "@/test";
 
-const {
-  mockFindDueTriggerIds,
-  mockClaimDueRuns,
-  mockEnqueue,
-} = vi.hoisted(() => ({
-  mockFindDueTriggerIds: vi.fn().mockResolvedValue([]),
-  mockClaimDueRuns: vi.fn().mockResolvedValue([]),
-  mockEnqueue: vi.fn().mockResolvedValue("task-id"),
-}));
+const { mockFindDueTriggerIds, mockClaimDueRunsInTransaction, mockEnqueue } =
+  vi.hoisted(() => ({
+    mockFindDueTriggerIds: vi.fn().mockResolvedValue([]),
+    mockClaimDueRunsInTransaction: vi.fn().mockResolvedValue([]),
+    mockEnqueue: vi.fn().mockResolvedValue("task-id"),
+  }));
 
 vi.mock("@/models", () => ({
   ScheduleTriggerModel: {
     findDueTriggerIds: mockFindDueTriggerIds,
-    claimDueRuns: mockClaimDueRuns,
+    claimDueRunsInTransaction: mockClaimDueRunsInTransaction,
   },
 }));
 
@@ -37,7 +34,7 @@ describe("handleCheckDueScheduleTriggers", () => {
 
   test("enqueues one execution task per claimed run", async () => {
     mockFindDueTriggerIds.mockResolvedValue(["trigger-1"]);
-    mockClaimDueRuns.mockResolvedValue([
+    mockClaimDueRunsInTransaction.mockResolvedValue([
       { id: "run-1" },
       { id: "run-2" },
     ]);
@@ -47,16 +44,18 @@ describe("handleCheckDueScheduleTriggers", () => {
     expect(mockEnqueue).toHaveBeenNthCalledWith(1, {
       taskType: "schedule_trigger_run_execute",
       payload: { runId: "run-1" },
+      tx: expect.anything(),
     });
     expect(mockEnqueue).toHaveBeenNthCalledWith(2, {
       taskType: "schedule_trigger_run_execute",
       payload: { runId: "run-2" },
+      tx: expect.anything(),
     });
   });
 
   test("continues processing later triggers after one claim fails", async () => {
     mockFindDueTriggerIds.mockResolvedValue(["trigger-1", "trigger-2"]);
-    mockClaimDueRuns
+    mockClaimDueRunsInTransaction
       .mockRejectedValueOnce(new Error("boom"))
       .mockResolvedValueOnce([{ id: "run-2" }]);
 
@@ -65,6 +64,7 @@ describe("handleCheckDueScheduleTriggers", () => {
     expect(mockEnqueue).toHaveBeenCalledWith({
       taskType: "schedule_trigger_run_execute",
       payload: { runId: "run-2" },
+      tx: expect.anything(),
     });
   });
 });

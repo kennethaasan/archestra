@@ -100,11 +100,14 @@ describe("TaskQueueService", () => {
       });
 
       expect(id).toBe("task-123");
-      expect(mockCreate).toHaveBeenCalledWith({
-        taskType: "connector_sync",
-        payload: { connectorId: "conn-1" },
-        maxAttempts: 5,
-      });
+      expect(mockCreate).toHaveBeenCalledWith(
+        {
+          taskType: "connector_sync",
+          payload: { connectorId: "conn-1" },
+          maxAttempts: 5,
+        },
+        undefined,
+      );
     });
 
     test("passes custom maxAttempts when provided", async () => {
@@ -116,11 +119,14 @@ describe("TaskQueueService", () => {
         maxAttempts: 3,
       });
 
-      expect(mockCreate).toHaveBeenCalledWith({
-        taskType: "batch_embedding",
-        payload: { documentIds: ["d1"] },
-        maxAttempts: 3,
-      });
+      expect(mockCreate).toHaveBeenCalledWith(
+        {
+          taskType: "batch_embedding",
+          payload: { documentIds: ["d1"] },
+          maxAttempts: 3,
+        },
+        undefined,
+      );
     });
   });
 
@@ -325,20 +331,37 @@ describe("TaskQueueService", () => {
   describe("seedPeriodicTasks", () => {
     test("seeds periodic tasks when none exist", async () => {
       mockHasPendingOrProcessingByType.mockResolvedValue(false);
-      mockCreate.mockResolvedValue({ id: "periodic-1" });
+      mockCreate
+        .mockResolvedValueOnce({ id: "periodic-1" })
+        .mockResolvedValueOnce({ id: "periodic-2" });
 
       await taskQueueService.seedPeriodicTasks();
 
       expect(mockHasPendingOrProcessingByType).toHaveBeenCalledWith(
         "check_due_connectors",
       );
-      expect(mockCreate).toHaveBeenCalledWith(
+      expect(mockHasPendingOrProcessingByType).toHaveBeenCalledWith(
+        "check_due_schedule_triggers",
+      );
+      expect(mockCreate).toHaveBeenNthCalledWith(
+        1,
         expect.objectContaining({
           taskType: "check_due_connectors",
           payload: {},
           maxAttempts: 1,
           periodic: true,
         }),
+        undefined,
+      );
+      expect(mockCreate).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          taskType: "check_due_schedule_triggers",
+          payload: {},
+          maxAttempts: 1,
+          periodic: true,
+        }),
+        undefined,
       );
     });
 
@@ -393,6 +416,7 @@ describe("TaskQueueService", () => {
           periodic: true,
           scheduledFor: expect.any(Date),
         }),
+        undefined,
       );
     });
 
@@ -422,6 +446,7 @@ describe("TaskQueueService", () => {
           taskType: "check_due_connectors",
           periodic: true,
         }),
+        undefined,
       );
     });
 

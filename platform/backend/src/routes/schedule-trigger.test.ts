@@ -41,7 +41,9 @@ describe("schedule trigger routes", () => {
       ).organizationId = organizationId;
     });
 
-    const { default: scheduleTriggerRoutes } = await import("./schedule-trigger");
+    const { default: scheduleTriggerRoutes } = await import(
+      "./schedule-trigger"
+    );
     await app.register(scheduleTriggerRoutes);
   });
 
@@ -146,6 +148,7 @@ describe("schedule trigger routes", () => {
     expect(mockEnqueue).toHaveBeenCalledWith({
       taskType: "schedule_trigger_run_execute",
       payload: { runId: runNowResponse.json().id },
+      tx: expect.anything(),
     });
 
     const historyResponse = await app.inject({
@@ -159,7 +162,50 @@ describe("schedule trigger routes", () => {
     });
   });
 
-  test("updates an existing schedule trigger", async ({ makeInternalAgent }) => {
+  test("rolls back the manual run when enqueueing fails", async ({
+    makeInternalAgent,
+  }) => {
+    const agent = await makeInternalAgent({
+      organizationId,
+      scope: "org",
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/schedule-triggers",
+      payload: {
+        name: "Manual trigger",
+        agentId: agent.id,
+        cronExpression: "0 12 * * *",
+        timezone: "UTC",
+        messageTemplate: "Use the current snapshot",
+      },
+    });
+    const created = createResponse.json();
+
+    mockEnqueue.mockRejectedValueOnce(new Error("queue unavailable"));
+
+    const runNowResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/run-now`,
+    });
+
+    expect(runNowResponse.statusCode).toBe(500);
+
+    const historyResponse = await app.inject({
+      method: "GET",
+      url: `/api/schedule-triggers/${created.id}/runs?limit=10&offset=0`,
+    });
+    expect(historyResponse.statusCode).toBe(200);
+    expect(historyResponse.json()).toMatchObject({
+      data: [],
+      pagination: expect.objectContaining({ total: 0 }),
+    });
+  });
+
+  test("updates an existing schedule trigger", async ({
+    makeInternalAgent,
+  }) => {
     const agent = await makeInternalAgent({
       organizationId,
       scope: "org",

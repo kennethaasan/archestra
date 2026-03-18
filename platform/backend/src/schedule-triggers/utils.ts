@@ -47,4 +47,3 @@ export function calculateNextDueAtOnOrAfter(params: {
 }): Date | null {
   return createCron(params).nextRun(new Date(params.from.getTime() - 1));
 }
-

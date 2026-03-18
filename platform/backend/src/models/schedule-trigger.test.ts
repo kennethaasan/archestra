@@ -165,4 +165,3 @@ describe("ScheduleTriggerModel", () => {
     expect(stored.lastRunAt?.toISOString()).toBe(completedAt.toISOString());
   });
 });
-

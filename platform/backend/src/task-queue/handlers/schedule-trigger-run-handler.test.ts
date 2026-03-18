@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test } from "@/test";
 const {
   mockHasAnyAgentTypeAdminPermission,
   mockExecuteA2AMessage,
-  mockMarkRunningIfPending,
+  mockClaimForExecution,
   mockMarkCompleted,
   mockRecordRunOutcome,
   mockGetById,
@@ -17,7 +17,7 @@ const {
     text: "done",
     finishReason: "stop",
   }),
-  mockMarkRunningIfPending: vi.fn(),
+  mockClaimForExecution: vi.fn(),
   mockMarkCompleted: vi.fn(),
   mockRecordRunOutcome: vi.fn(),
   mockGetById: vi.fn(),
@@ -35,7 +35,7 @@ vi.mock("@/agents/a2a-executor", () => ({
 
 vi.mock("@/models", () => ({
   ScheduleTriggerRunModel: {
-    markRunningIfPending: mockMarkRunningIfPending,
+    claimForExecution: mockClaimForExecution,
     markCompleted: mockMarkCompleted,
   },
   ScheduleTriggerModel: {
@@ -65,7 +65,7 @@ describe("handleScheduleTriggerRunExecution", () => {
       finishReason: "stop",
     });
     mockUserHasAgentAccess.mockResolvedValue(true);
-    mockMarkRunningIfPending.mockResolvedValue({
+    mockClaimForExecution.mockResolvedValue({
       id: "run-1",
       triggerId: "trigger-1",
       organizationId: "org-1",
@@ -91,6 +91,13 @@ describe("handleScheduleTriggerRunExecution", () => {
       error: null,
       completedAt: new Date("2026-03-18T10:00:00.000Z"),
     });
+  });
+
+  test("reclaims a stale running run when the queue task is retried", async () => {
+    await handleScheduleTriggerRunExecution({ runId: "run-1" });
+
+    expect(mockClaimForExecution).toHaveBeenCalledWith("run-1", 60 * 60 * 1000);
+    expect(mockExecuteA2AMessage).toHaveBeenCalled();
   });
 
   test("executes the run using the stored actor permissions", async () => {

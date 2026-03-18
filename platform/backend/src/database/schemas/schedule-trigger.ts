@@ -49,4 +49,3 @@ const scheduleTriggersTable = pgTable(
 );
 
 export default scheduleTriggersTable;
-

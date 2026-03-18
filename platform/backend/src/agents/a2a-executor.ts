@@ -72,7 +72,7 @@ export interface A2AExecuteParams {
   /** Optional attachments to include in the message (e.g., images from email, Slack, Teams) */
   attachments?: A2AAttachment[];
   /** Whether execution should resolve tools/browser access with agent-admin privileges. */
-  userIsAgentAdmin?: boolean;
+  userIsAgentAdmin: boolean;
 }
 
 export interface A2AExecuteResult {
@@ -98,7 +98,7 @@ export async function executeA2AMessage(
     message,
     organizationId,
     userId,
-    userIsAgentAdmin = true,
+    userIsAgentAdmin,
     sessionId,
     source,
     parentDelegationChain,

@@ -15,9 +15,7 @@ import type {
   ScheduleTriggerRunStatus,
   UpdateScheduleTrigger,
 } from "@/types";
-import {
-  InsertScheduleTriggerSchema,
-} from "@/types";
+import { InsertScheduleTriggerSchema } from "@/types";
 
 type ScheduleTriggerListFilters = {
   organizationId: string;
@@ -34,7 +32,9 @@ class ScheduleTriggerModel {
       "organizationId" | "enabled" | "agentIds"
     >,
   ): Promise<number> {
-    const filters = [eq(schema.scheduleTriggersTable.organizationId, params.organizationId)];
+    const filters = [
+      eq(schema.scheduleTriggersTable.organizationId, params.organizationId),
+    ];
 
     if (params.enabled !== undefined) {
       filters.push(eq(schema.scheduleTriggersTable.enabled, params.enabled));
@@ -44,7 +44,9 @@ class ScheduleTriggerModel {
       if (params.agentIds.length === 0) {
         return 0;
       }
-      filters.push(inArray(schema.scheduleTriggersTable.agentId, params.agentIds));
+      filters.push(
+        inArray(schema.scheduleTriggersTable.agentId, params.agentIds),
+      );
     }
 
     const [result] = await db
@@ -58,7 +60,9 @@ class ScheduleTriggerModel {
   static async listByOrganization(
     params: ScheduleTriggerListFilters,
   ): Promise<ScheduleTrigger[]> {
-    const filters = [eq(schema.scheduleTriggersTable.organizationId, params.organizationId)];
+    const filters = [
+      eq(schema.scheduleTriggersTable.organizationId, params.organizationId),
+    ];
 
     if (params.enabled !== undefined) {
       filters.push(eq(schema.scheduleTriggersTable.enabled, params.enabled));
@@ -68,7 +72,9 @@ class ScheduleTriggerModel {
       if (params.agentIds.length === 0) {
         return [];
       }
-      filters.push(inArray(schema.scheduleTriggersTable.agentId, params.agentIds));
+      filters.push(
+        inArray(schema.scheduleTriggersTable.agentId, params.agentIds),
+      );
     }
 
     let query = db
@@ -179,7 +185,7 @@ class ScheduleTriggerModel {
       })
       .returning();
 
-    return (await this.findById(created.id)) ?? created;
+    return (await ScheduleTriggerModel.findById(created.id)) ?? created;
   }
 
   static async update(
@@ -204,7 +210,7 @@ class ScheduleTriggerModel {
       return null;
     }
 
-    return await this.findById(updated.id);
+    return await ScheduleTriggerModel.findById(updated.id);
   }
 
   static async delete(id: string): Promise<boolean> {
@@ -240,74 +246,89 @@ class ScheduleTriggerModel {
     maxMissedSlotsPerPass?: number;
   }): Promise<ScheduleTriggerRun[]> {
     return await db.transaction(async (tx) => {
-      const trigger = await this.lockDueTrigger(tx, params.triggerId, params.now);
-      if (!trigger?.nextDueAt) {
-        return [];
-      }
-
-      const maxMissedSlotsPerPass =
-        params.maxMissedSlotsPerPass ??
-        SCHEDULE_TRIGGERS_MAX_MISSED_SLOTS_PER_PASS;
-      const createdRuns: ScheduleTriggerRun[] = [];
-      let nextDueAt: Date | null = trigger.nextDueAt;
-
-      const oldestAllowedDueAt = new Date(
-        params.now.getTime() - SCHEDULE_TRIGGER_BACKFILL_WINDOW_MS,
-      );
-
-      if (nextDueAt < oldestAllowedDueAt) {
-        const clamped = calculateNextDueAtOnOrAfter({
-          cronExpression: trigger.cronExpression,
-          timezone: trigger.timezone,
-          from: oldestAllowedDueAt,
-        });
-
-        nextDueAt = clamped;
-      }
-
-      let processedSlots = 0;
-      while (
-        nextDueAt &&
-        nextDueAt <= params.now &&
-        processedSlots < maxMissedSlotsPerPass
-      ) {
-        const [createdRun] = await tx
-          .insert(schema.scheduleTriggerRunsTable)
-          .values({
-            organizationId: trigger.organizationId,
-            triggerId: trigger.id,
-            runKind: "due",
-            status: "pending",
-            dueAt: nextDueAt,
-            agentIdSnapshot: trigger.agentId,
-            messageTemplateSnapshot: trigger.messageTemplate,
-            actorUserIdSnapshot: trigger.actorUserId,
-            timezoneSnapshot: trigger.timezone,
-            cronExpressionSnapshot: trigger.cronExpression,
-          })
-          .onConflictDoNothing()
-          .returning();
-
-        if (!createdRun) {
-          break;
-        }
-
-        createdRuns.push(createdRun);
-        processedSlots += 1;
-        nextDueAt = calculateNextDueAt({
-          cronExpression: trigger.cronExpression,
-          timezone: trigger.timezone,
-          from: nextDueAt,
-        });
-      }
-
-      await tx
-        .update(schema.scheduleTriggersTable)
-        .set({ nextDueAt })
-        .where(eq(schema.scheduleTriggersTable.id, trigger.id));
-
-      return createdRuns;
+      return await ScheduleTriggerModel.claimDueRunsInTransaction(tx, params);
     });
+  }
+
+  static async claimDueRunsInTransaction(
+    tx: Transaction,
+    params: {
+      triggerId: string;
+      now: Date;
+      maxMissedSlotsPerPass?: number;
+    },
+  ): Promise<ScheduleTriggerRun[]> {
+    const trigger = await ScheduleTriggerModel.lockDueTrigger(
+      tx,
+      params.triggerId,
+      params.now,
+    );
+    if (!trigger?.nextDueAt) {
+      return [];
+    }
+
+    const maxMissedSlotsPerPass =
+      params.maxMissedSlotsPerPass ??
+      SCHEDULE_TRIGGERS_MAX_MISSED_SLOTS_PER_PASS;
+    const createdRuns: ScheduleTriggerRun[] = [];
+    let nextDueAt: Date | null = trigger.nextDueAt;
+
+    const oldestAllowedDueAt = new Date(
+      params.now.getTime() - SCHEDULE_TRIGGER_BACKFILL_WINDOW_MS,
+    );
+
+    if (nextDueAt < oldestAllowedDueAt) {
+      const clamped = calculateNextDueAtOnOrAfter({
+        cronExpression: trigger.cronExpression,
+        timezone: trigger.timezone,
+        from: oldestAllowedDueAt,
+      });
+
+      nextDueAt = clamped;
+    }
+
+    let processedSlots = 0;
+    while (
+      nextDueAt &&
+      nextDueAt <= params.now &&
+      processedSlots < maxMissedSlotsPerPass
+    ) {
+      const [createdRun] = await tx
+        .insert(schema.scheduleTriggerRunsTable)
+        .values({
+          organizationId: trigger.organizationId,
+          triggerId: trigger.id,
+          runKind: "due",
+          status: "pending",
+          dueAt: nextDueAt,
+          agentIdSnapshot: trigger.agentId,
+          messageTemplateSnapshot: trigger.messageTemplate,
+          actorUserIdSnapshot: trigger.actorUserId,
+          timezoneSnapshot: trigger.timezone,
+          cronExpressionSnapshot: trigger.cronExpression,
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      if (!createdRun) {
+        break;
+      }
+
+      createdRuns.push(createdRun);
+      processedSlots += 1;
+      nextDueAt = calculateNextDueAt({
+        cronExpression: trigger.cronExpression,
+        timezone: trigger.timezone,
+        from: nextDueAt,
+      });
+    }
+
+    await tx
+      .update(schema.scheduleTriggersTable)
+      .set({ nextDueAt })
+      .where(eq(schema.scheduleTriggersTable.id, trigger.id));
+
+    return createdRuns;
   }
 
   static async recordRunOutcome(params: {

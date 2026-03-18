@@ -1,5 +1,5 @@
-import { hasAnyAgentTypeAdminPermission } from "@/auth";
 import { executeA2AMessage } from "@/agents/a2a-executor";
+import { hasAnyAgentTypeAdminPermission } from "@/auth";
 import logger from "@/logging";
 import {
   AgentModel,
@@ -8,6 +8,7 @@ import {
   ScheduleTriggerRunModel,
   UserModel,
 } from "@/models";
+import { TASK_QUEUE_STUCK_TIMEOUT_MS } from "@/task-queue/constants";
 
 export async function handleScheduleTriggerRunExecution(
   payload: Record<string, unknown>,
@@ -17,7 +18,10 @@ export async function handleScheduleTriggerRunExecution(
     throw new Error("Missing runId in schedule trigger execution payload");
   }
 
-  const run = await ScheduleTriggerRunModel.markRunningIfPending(runId);
+  const run = await ScheduleTriggerRunModel.claimForExecution(
+    runId,
+    TASK_QUEUE_STUCK_TIMEOUT_MS,
+  );
   if (!run) {
     return;
   }

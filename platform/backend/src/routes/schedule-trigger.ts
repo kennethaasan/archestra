@@ -7,13 +7,15 @@ import {
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { hasAnyAgentTypeAdminPermission } from "@/auth";
-import { taskQueueService } from "@/task-queue";
+import db from "@/database";
 import {
   AgentModel,
   AgentTeamModel,
   ScheduleTriggerModel,
   ScheduleTriggerRunModel,
 } from "@/models";
+import { calculateNextDueAt } from "@/schedule-triggers/utils";
+import { taskQueueService } from "@/task-queue";
 import {
   ApiError,
   constructResponseSchema,
@@ -24,7 +26,6 @@ import {
   SelectScheduleTriggerSchema,
   UuidIdSchema,
 } from "@/types";
-import { calculateNextDueAt } from "@/schedule-triggers/utils";
 
 const ScheduleTriggerBodyFieldsSchema = z.object({
   name: z.string().min(1),
@@ -33,8 +34,8 @@ const ScheduleTriggerBodyFieldsSchema = z.object({
   ...ScheduleTriggerConfigurationSchemaBase.shape,
 });
 
-const CreateScheduleTriggerBodySchema = ScheduleTriggerBodyFieldsSchema.superRefine(
-  (data, ctx) => {
+const CreateScheduleTriggerBodySchema =
+  ScheduleTriggerBodyFieldsSchema.superRefine((data, ctx) => {
     const result = ScheduleTriggerConfigurationSchema.safeParse(data);
     if (result.success) {
       return;
@@ -47,11 +48,10 @@ const CreateScheduleTriggerBodySchema = ScheduleTriggerBodyFieldsSchema.superRef
         path: issue.path,
       });
     }
-  },
-);
+  });
 
-const UpdateScheduleTriggerBodySchema = ScheduleTriggerBodyFieldsSchema.partial().superRefine(
-  (data, ctx) => {
+const UpdateScheduleTriggerBodySchema =
+  ScheduleTriggerBodyFieldsSchema.partial().superRefine((data, ctx) => {
     if (Object.keys(data).length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -60,9 +60,8 @@ const UpdateScheduleTriggerBodySchema = ScheduleTriggerBodyFieldsSchema.partial(
       return;
     }
 
-    const result = ScheduleTriggerConfigurationSchemaBase.partial().safeParse(
-      data,
-    );
+    const result =
+      ScheduleTriggerConfigurationSchemaBase.partial().safeParse(data);
     if (result.success) {
       return;
     }
@@ -74,8 +73,7 @@ const UpdateScheduleTriggerBodySchema = ScheduleTriggerBodyFieldsSchema.partial(
         path: issue.path,
       });
     }
-  },
-);
+  });
 
 const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
   fastify.get(
@@ -89,7 +87,9 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
           enabled: z
             .preprocess(
               (value) =>
-                value === undefined ? undefined : value === "true" || value === true,
+                value === undefined
+                  ? undefined
+                  : value === "true" || value === true,
               z.boolean(),
             )
             .optional(),
@@ -99,7 +99,10 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         ),
       },
     },
-    async ({ query: { limit, offset, enabled }, user, organizationId }, reply) => {
+    async (
+      { query: { limit, offset, enabled }, user, organizationId },
+      reply,
+    ) => {
       const isAgentAdmin = await hasAnyAgentTypeAdminPermission({
         userId: user.id,
         organizationId,
@@ -147,12 +150,19 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         organizationId,
       });
 
-      const agent = await AgentModel.findById(body.agentId, user.id, isAgentAdmin);
+      const agent = await AgentModel.findById(
+        body.agentId,
+        user.id,
+        isAgentAdmin,
+      );
       if (!agent) {
         throw new ApiError(403, "You do not have access to the selected agent");
       }
 
-      if (agent.organizationId !== organizationId || agent.agentType !== "agent") {
+      if (
+        agent.organizationId !== organizationId ||
+        agent.agentType !== "agent"
+      ) {
         throw new ApiError(400, "Scheduled triggers require an internal agent");
       }
 
@@ -167,7 +177,7 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         enabled: body.enabled ?? true,
         actorUserId: user.id,
         nextDueAt:
-          body.enabled ?? true
+          (body.enabled ?? true)
             ? calculateNextDueAt({
                 cronExpression: body.cronExpression,
                 timezone: body.timezone,
@@ -233,7 +243,10 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         throw new ApiError(403, "You do not have access to the selected agent");
       }
 
-      if (agent.organizationId !== organizationId || agent.agentType !== "agent") {
+      if (
+        agent.organizationId !== organizationId ||
+        agent.agentType !== "agent"
+      ) {
         throw new ApiError(400, "Scheduled triggers require an internal agent");
       }
 
@@ -248,7 +261,10 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
       });
       if (!validation.success) {
         const firstIssue = validation.error.issues[0];
-        throw new ApiError(400, firstIssue?.message ?? "Invalid schedule trigger configuration");
+        throw new ApiError(
+          400,
+          firstIssue?.message ?? "Invalid schedule trigger configuration",
+        );
       }
       const shouldRecalculateNextDueAt =
         body.enabled !== undefined ||
@@ -386,14 +402,20 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         organizationId,
       });
 
-      const run = await ScheduleTriggerRunModel.createManualRun({
-        trigger,
-        initiatedByUserId: user.id,
-      });
+      const run = await db.transaction(async (tx) => {
+        const createdRun = await ScheduleTriggerRunModel.createManualRun({
+          trigger,
+          initiatedByUserId: user.id,
+          txOrDb: tx,
+        });
 
-      await taskQueueService.enqueue({
-        taskType: "schedule_trigger_run_execute",
-        payload: { runId: run.id },
+        await taskQueueService.enqueue({
+          taskType: "schedule_trigger_run_execute",
+          payload: { runId: createdRun.id },
+          tx,
+        });
+
+        return createdRun;
       });
 
       return reply.send(run);
@@ -414,7 +436,10 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         ),
       },
     },
-    async ({ params: { id }, query: { limit, offset }, user, organizationId }, reply) => {
+    async (
+      { params: { id }, query: { limit, offset }, user, organizationId },
+      reply,
+    ) => {
       const trigger = await findAccessibleTriggerOrThrow({
         id,
         userId: user.id,

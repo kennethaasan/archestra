@@ -51,4 +51,3 @@ const scheduleTriggerRunsTable = pgTable(
 );
 
 export default scheduleTriggerRunsTable;
-

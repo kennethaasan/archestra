@@ -572,6 +572,7 @@ export async function processIncomingEmail(
 
   // Determine userId for the request (used for 'private' mode)
   let userId: string = "system";
+  let userIsAgentAdmin = false;
 
   switch (securityMode) {
     case "private": {
@@ -624,6 +625,7 @@ export async function processIncomingEmail(
 
       // Use the verified user ID for execution context
       userId = user.id;
+      userIsAgentAdmin = isAgentAdmin;
 
       logger.info(
         {
@@ -846,6 +848,7 @@ ${formattedHistory}
         message,
         organizationId: organization,
         userId,
+        userIsAgentAdmin,
         sessionId: buildEmailSessionId(email.conversationId),
         source: "email",
         attachments: a2aAttachments.length > 0 ? a2aAttachments : undefined,

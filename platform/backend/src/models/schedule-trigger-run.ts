@@ -1,5 +1,5 @@
 import { and, count, desc, eq, inArray, lt, or } from "drizzle-orm";
-import db, { schema } from "@/database";
+import db, { schema, type Transaction } from "@/database";
 import type {
   ScheduleTrigger,
   ScheduleTriggerRun,
@@ -10,8 +10,10 @@ class ScheduleTriggerRunModel {
   static async createManualRun(params: {
     trigger: ScheduleTrigger;
     initiatedByUserId: string;
+    txOrDb?: Transaction | typeof db;
   }): Promise<ScheduleTriggerRun> {
-    const [run] = await db
+    const txOrDb = params.txOrDb ?? db;
+    const [run] = await txOrDb
       .insert(schema.scheduleTriggerRunsTable)
       .values({
         organizationId: params.trigger.organizationId,
@@ -40,7 +42,10 @@ class ScheduleTriggerRunModel {
       .from(schema.scheduleTriggerRunsTable)
       .where(
         and(
-          eq(schema.scheduleTriggerRunsTable.organizationId, params.organizationId),
+          eq(
+            schema.scheduleTriggerRunsTable.organizationId,
+            params.organizationId,
+          ),
           eq(schema.scheduleTriggerRunsTable.triggerId, params.triggerId),
         ),
       );
@@ -59,7 +64,10 @@ class ScheduleTriggerRunModel {
       .from(schema.scheduleTriggerRunsTable)
       .where(
         and(
-          eq(schema.scheduleTriggerRunsTable.organizationId, params.organizationId),
+          eq(
+            schema.scheduleTriggerRunsTable.organizationId,
+            params.organizationId,
+          ),
           eq(schema.scheduleTriggerRunsTable.triggerId, params.triggerId),
         ),
       )
@@ -99,27 +107,10 @@ class ScheduleTriggerRunModel {
 
   static async claimForExecution(
     runId: string,
+    staleAfterMs?: number,
   ): Promise<ScheduleTriggerRun | null> {
-    const [run] = await db
-      .update(schema.scheduleTriggerRunsTable)
-      .set({
-        status: "running",
-        startedAt: new Date(),
-        error: null,
-      })
-      .where(eq(schema.scheduleTriggerRunsTable.id, runId))
-      .returning();
-
-    if (!run || run.status !== "running") {
-      return null;
-    }
-
-    return run;
-  }
-
-  static async markRunningIfPending(
-    runId: string,
-  ): Promise<ScheduleTriggerRun | null> {
+    const staleStartedAtCutoff =
+      staleAfterMs === undefined ? null : new Date(Date.now() - staleAfterMs);
     const [run] = await db
       .update(schema.scheduleTriggerRunsTable)
       .set({
@@ -130,7 +121,18 @@ class ScheduleTriggerRunModel {
       .where(
         and(
           eq(schema.scheduleTriggerRunsTable.id, runId),
-          eq(schema.scheduleTriggerRunsTable.status, "pending"),
+          or(
+            eq(schema.scheduleTriggerRunsTable.status, "pending"),
+            staleStartedAtCutoff === null
+              ? eq(schema.scheduleTriggerRunsTable.status, "running")
+              : and(
+                  eq(schema.scheduleTriggerRunsTable.status, "running"),
+                  lt(
+                    schema.scheduleTriggerRunsTable.startedAt,
+                    staleStartedAtCutoff,
+                  ),
+                ),
+          ),
         ),
       )
       .returning();
@@ -199,4 +201,3 @@ class ScheduleTriggerRunModel {
 }
 
 export default ScheduleTriggerRunModel;
-
