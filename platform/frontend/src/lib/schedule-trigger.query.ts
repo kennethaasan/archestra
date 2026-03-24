@@ -76,6 +76,8 @@ type ScheduleTriggerRequestBody = {
 
 export const scheduleTriggerKeys = {
   all: ["schedule-triggers"] as const,
+  detail: (triggerId: string) =>
+    [...scheduleTriggerKeys.all, "detail", triggerId] as const,
   list: (params: { enabled?: boolean; limit?: number; offset?: number }) =>
     [...scheduleTriggerKeys.all, "list", params] as const,
   runsPrefix: (triggerId: string) =>
@@ -130,6 +132,26 @@ export function useScheduleTriggers(params?: {
       await scheduleTriggerRequest<PaginatedResponse<ScheduleTrigger>>(
         `/api/schedule-triggers?${query.toString()}`,
       ),
+    ...(params?.refetchInterval
+      ? { refetchInterval: params.refetchInterval }
+      : {}),
+  });
+}
+
+export function useScheduleTrigger(
+  triggerId: string | null,
+  params?: {
+    enabled?: boolean;
+    refetchInterval?: number | false;
+  },
+) {
+  return useQuery({
+    queryKey: scheduleTriggerKeys.detail(triggerId ?? ""),
+    queryFn: async () =>
+      await scheduleTriggerRequest<ScheduleTrigger>(
+        `/api/schedule-triggers/${triggerId}`,
+      ),
+    enabled: !!triggerId && (params?.enabled ?? true),
     ...(params?.refetchInterval
       ? { refetchInterval: params.refetchInterval }
       : {}),

@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatCronSchedule } from "@/lib/format-cron";
+import { formatCronSchedule } from "@/lib/utils/format-cron";
 
 export type CronPresetOption = {
   label: string;

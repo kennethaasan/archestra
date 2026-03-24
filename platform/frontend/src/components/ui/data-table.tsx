@@ -71,6 +71,8 @@ interface DataTableProps<TData, TValue> {
   filteredEmptyMessage?: string;
   /** Called when the user clears active filters from the empty state */
   onClearFilters?: () => void;
+  /** Hide pagination controls when all rows fit on a single page. */
+  hidePaginationWhenSinglePage?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -95,6 +97,7 @@ export function DataTable<TData, TValue>({
   hasActiveFilters = false,
   filteredEmptyMessage = "No results match your filters. Try adjusting your search.",
   onClearFilters,
+  hidePaginationWhenSinglePage = false,
 }: DataTableProps<TData, TValue>) {
   const [internalSorting, setInternalSorting] = useState<SortingState>([]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
@@ -180,6 +183,13 @@ export function DataTable<TData, TValue>({
       }
     },
   });
+
+  const currentPageSize =
+    pagination?.pageSize ?? table.getState().pagination.pageSize;
+  const totalRows = pagination?.total ?? data.length;
+  const shouldShowPagination =
+    (pagination || !manualPagination) &&
+    (!hidePaginationWhenSinglePage || totalRows > currentPageSize);
 
   return (
     <div className="w-full space-y-4">
@@ -301,7 +311,7 @@ export function DataTable<TData, TValue>({
           </TableBody>
         </Table>
       </div>
-      {(pagination || !manualPagination) && (
+      {shouldShowPagination && (
         <DataTablePagination
           table={table}
           totalRows={pagination?.total}

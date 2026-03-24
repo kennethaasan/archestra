@@ -16,6 +16,12 @@ const mockUseScheduleTriggerRuns = vi.fn();
 const mockUseInteractions = vi.fn();
 const mockSearchableSelect = vi.fn();
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
+}));
+
 vi.mock("@/lib/agent.query", () => ({
   useProfiles: (...args: unknown[]) => mockUseProfiles(...args),
 }));
@@ -26,6 +32,7 @@ vi.mock("@/lib/interaction.query", () => ({
 
 vi.mock("@/lib/schedule-trigger.query", () => ({
   useScheduleTriggers: (...args: unknown[]) => mockUseScheduleTriggers(...args),
+  useScheduleTrigger: vi.fn(),
   useScheduleTriggerRuns: (...args: unknown[]) =>
     mockUseScheduleTriggerRuns(...args),
   useCreateScheduleTrigger: () => ({
@@ -180,8 +187,7 @@ describe("ScheduleTriggersPage", () => {
 
     render(<ScheduleTriggersPage />);
 
-    expect(screen.getByText("Running schedules")).toBeInTheDocument();
-    expect(screen.getByText("Paused schedules")).toBeInTheDocument();
+    expect(screen.getByText("Scheduled triggers")).toBeInTheDocument();
 
     const enabledTrigger = screen.getByText("Enabled trigger");
     const pausedTrigger = screen.getByText("Paused trigger");
@@ -190,6 +196,25 @@ describe("ScheduleTriggersPage", () => {
       enabledTrigger.compareDocumentPosition(pausedTrigger) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("keeps the create form compact without inline enablement controls", () => {
+    mockUseScheduleTriggers.mockReturnValue({
+      data: {
+        data: [],
+      },
+      isLoading: false,
+    });
+
+    render(<ScheduleTriggersPage />);
+
+    expect(screen.queryByText("Enabled")).not.toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(
+        "What should happen? (e.g. Review yesterday's failures and send a short summary)",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("cron-expression-picker")).toBeInTheDocument();
   });
 
   it("passes timezone options with system timezone first and UTC second", () => {

@@ -1,6 +1,10 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SourceBadge } from "./source-badge";
+
+vi.mock("@/lib/hooks/use-app-name", () => ({
+  useAppIconLogo: () => "/icon.png",
+}));
 
 describe("SourceBadge", () => {
   it("renders the scheduled trigger label", () => {
