@@ -52,6 +52,7 @@ import { enterpriseLicenseMiddleware } from "@/middleware";
 import AgentLabelModel from "@/models/agent-label";
 import OrganizationModel from "@/models/organization";
 import { metrics } from "@/observability";
+import { enrichOpenApiWithRbac } from "@/openapi/enrich-openapi-with-rbac";
 import { systemKeyManager } from "@/services/system-key-manager";
 import { taskQueueService } from "@/task-queue";
 import { registerTaskHandlers } from "@/task-queue/handlers";
@@ -248,6 +249,7 @@ export const createFastifyInstance = () =>
   Fastify({
     loggerInstance: logger,
     disableRequestLogging: true,
+    trustProxy: config.api.trustProxy,
   })
     .withTypeProvider<ZodTypeProvider>()
     .setValidatorCompiler(validatorCompiler)
@@ -382,6 +384,53 @@ const registerMetricsPlugin = async (
   });
 };
 
+const addMetricsAuthenticationHook = (
+  fastify: FastifyInstanceWithZod,
+): void => {
+  const { secret: metricsSecret } = observability.metrics;
+
+  if (!metricsSecret) {
+    return;
+  }
+
+  fastify.addHook("preHandler", async (request, reply) => {
+    if (
+      request.url === HEALTH_PATH ||
+      request.url === READY_PATH ||
+      request.url.startsWith(`${HEALTH_PATH}?`) ||
+      request.url.startsWith(`${READY_PATH}?`)
+    ) {
+      return;
+    }
+
+    const authHeader = request.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      reply.code(401).send({ error: "Unauthorized: Bearer token required" });
+      return;
+    }
+
+    const token = authHeader.slice(7);
+    if (token !== metricsSecret) {
+      reply.code(401).send({ error: "Unauthorized: Invalid token" });
+      return;
+    }
+  });
+};
+
+const registerStandaloneMetricsEndpoint = async (params: {
+  fastify: FastifyInstanceWithZod;
+  enableDefaultMetrics: boolean;
+}): Promise<void> => {
+  const { fastify, enableDefaultMetrics } = params;
+  addMetricsAuthenticationHook(fastify);
+
+  await fastify.register(metricsPlugin, {
+    endpoint: observability.metrics.endpoint,
+    defaultMetrics: { enabled: enableDefaultMetrics },
+    routeMetrics: { enabled: false },
+  });
+};
+
 /**
  * Create separate Fastify instance for metrics on a separate port
  *
@@ -392,36 +441,17 @@ let metricsServerInstance: Awaited<
 > | null = null;
 
 const startMetricsServer = async () => {
-  const { secret: metricsSecret } = observability.metrics;
-
   const metricsServer = createFastifyInstance();
   metricsServerInstance = metricsServer;
 
-  // Add authentication hook for metrics endpoint if secret is configured
-  if (metricsSecret) {
-    metricsServer.addHook("preHandler", async (request, reply) => {
-      // Skip auth for health and readiness endpoints
-      if (request.url === HEALTH_PATH || request.url === READY_PATH) {
-        return;
-      }
-
-      const authHeader = request.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        reply.code(401).send({ error: "Unauthorized: Bearer token required" });
-        return;
-      }
-
-      const token = authHeader.slice(7); // Remove 'Bearer ' prefix
-      if (token !== metricsSecret) {
-        reply.code(401).send({ error: "Unauthorized: Invalid token" });
-        return;
-      }
-    });
-  }
-
   metricsServer.get(HEALTH_PATH, () => ({ status: "ok" }));
 
-  await registerMetricsPlugin(metricsServer, true);
+  await registerStandaloneMetricsEndpoint({
+    fastify: metricsServer,
+    // The web process already registers default metrics on its main Fastify
+    // instance. The dedicated metrics server must only expose that registry.
+    enableDefaultMetrics: false,
+  });
 
   // Start metrics server on dedicated port
   await metricsServer.listen({
@@ -430,7 +460,9 @@ const startMetricsServer = async () => {
   });
   metricsServer.log.info(
     `Metrics server started on port ${observability.metrics.port}${
-      metricsSecret ? " (with authentication)" : " (no authentication)"
+      observability.metrics.secret
+        ? " (with authentication)"
+        : " (no authentication)"
     }`,
   );
 };
@@ -664,7 +696,9 @@ const startWebServer = async () => {
     await registerSwaggerPlugin(fastify);
 
     // Register routes
-    fastify.get("/openapi.json", async () => fastify.swagger());
+    fastify.get("/openapi.json", async () =>
+      enrichOpenApiWithRbac(fastify.swagger()),
+    );
 
     if (enableE2eTestEndpoints) {
       fastify.get("/test", async () => ({
@@ -793,8 +827,9 @@ const startWorker = async () => {
     await taskQueueService.seedPeriodicTasks();
     taskQueueService.startWorker();
 
-    // Minimal health server for Kubernetes probes
-    const healthServer = Fastify();
+    // Minimal worker server for Kubernetes probes and Prometheus scraping
+    const healthServer = createFastifyInstance();
+
     healthServer.get("/health", async () => ({ status: "ok" }));
     healthServer.get("/ready", async (_request, reply) => {
       const dbHealthy = await isDatabaseHealthy();
@@ -803,8 +838,14 @@ const startWorker = async () => {
       }
       return { status: "ok" };
     });
+
+    await registerStandaloneMetricsEndpoint({
+      fastify: healthServer,
+      enableDefaultMetrics: true,
+    });
+
     await healthServer.listen({ port: port, host });
-    logger.info(`Worker health server started on port ${port}`);
+    logger.info(`Worker server started on port ${port}`);
 
     const gracefulShutdown = async (signal: string) => {
       logger.info(`Worker received ${signal}, shutting down...`);

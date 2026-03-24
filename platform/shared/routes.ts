@@ -39,6 +39,7 @@ export const RouteId = {
 
   // Config Routes
   GetConfig: "getConfig",
+  GetPublicConfig: "getPublicConfig",
 
   // Auth Routes
   GetDefaultCredentialsStatus: "getDefaultCredentialsStatus",
@@ -149,18 +150,6 @@ export const RouteId = {
   BulkUpsertDefaultCallPolicy: "bulkUpsertDefaultCallPolicy",
   BulkUpsertDefaultResultPolicy: "bulkUpsertDefaultResultPolicy",
 
-  // Dual LLM Config Routes
-  GetDefaultDualLlmConfig: "getDefaultDualLlmConfig",
-  GetDualLlmConfigs: "getDualLlmConfigs",
-  CreateDualLlmConfig: "createDualLlmConfig",
-  GetDualLlmConfig: "getDualLlmConfig",
-  UpdateDualLlmConfig: "updateDualLlmConfig",
-  DeleteDualLlmConfig: "deleteDualLlmConfig",
-
-  // Dual LLM Result Routes
-  GetDualLlmResultByToolCallId: "getDualLlmResultByToolCallId",
-  GetDualLlmResultsByInteraction: "getDualLlmResultsByInteraction",
-
   // Proxy Routes - OpenAI
   OpenAiChatCompletionsWithDefaultAgent:
     "openAiChatCompletionsWithDefaultAgent",
@@ -257,7 +246,6 @@ export const RouteId = {
   ForkSharedConversation: "forkSharedConversation",
   GetChatModels: "getChatModels",
   SyncChatModels: "syncChatModels",
-  SyncChatModelsFull: "syncChatModelsFull",
 
   // Chat API Key Routes
   GetChatApiKeys: "getChatApiKeys",

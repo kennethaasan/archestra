@@ -1,5 +1,137 @@
 # Changelog
 
+## [1.1.38](https://github.com/archestra-ai/archestra/compare/platform-v1.1.37...platform-v1.1.38) (2026-03-24)
+
+
+### Features
+
+* add identity provider option to disable RP-Initiated Logout ([#3519](https://github.com/archestra-ai/archestra/issues/3519)) ([5b88da4](https://github.com/archestra-ai/archestra/commit/5b88da4eeb04fbb4287e4551cedb9d43ddc42d2e))
+
+
+### Miscellaneous Chores
+
+* improve Sentry capture, Node diagnostics, and trace sampling ([#3520](https://github.com/archestra-ai/archestra/issues/3520)) ([d0908dc](https://github.com/archestra-ai/archestra/commit/d0908dc5d25a77bb1f1bffe6336dc644eef57423))
+* load public auth config from the backend ([#3522](https://github.com/archestra-ai/archestra/issues/3522)) ([adebc19](https://github.com/archestra-ai/archestra/commit/adebc1939b0b851761b537c072c9421ac7a528f3))
+* **refactor:** frontend lib into chat, tools, and hooks directories ([#3515](https://github.com/archestra-ai/archestra/issues/3515)) ([ca84169](https://github.com/archestra-ai/archestra/commit/ca84169e7cf68e9a58cf1a6c8421a3e23acba86e))
+
+## [1.1.37](https://github.com/archestra-ai/archestra/compare/platform-v1.1.36...platform-v1.1.37) (2026-03-23)
+
+
+### Bug Fixes
+
+* Endless retry loop on provider error bug ([#3507](https://github.com/archestra-ai/archestra/issues/3507)) ([64cbfe4](https://github.com/archestra-ai/archestra/commit/64cbfe49b9666c3fe904f34cb768f49080cb08f7))
+* probe Vertex Gemini fallback models when list only returns live audio ([#3504](https://github.com/archestra-ai/archestra/issues/3504)) ([313c9e7](https://github.com/archestra-ai/archestra/commit/313c9e790152f308737ea4e514ef8b5f9b0fb9ad))
+* simplify chat model sync and provider fetchers ([#3508](https://github.com/archestra-ai/archestra/issues/3508)) ([02ffa24](https://github.com/archestra-ai/archestra/commit/02ffa24d928df1e0422f821073f890678fc7b017))
+* strip non-ISO-8859-1 chars from chat agent ID header ([#3500](https://github.com/archestra-ai/archestra/issues/3500)) ([e2c474c](https://github.com/archestra-ai/archestra/commit/e2c474cc6bfbdf76c7cd6952834c02456584ab35))
+
+
+### Dependencies
+
+* bump the platform-dependencies group in /platform with 15 updates ([#3478](https://github.com/archestra-ai/archestra/issues/3478)) ([ab8b2f3](https://github.com/archestra-ai/archestra/commit/ab8b2f3ccb1800188250ddadd6cb4004e8afce97))
+
+
+### Miscellaneous Chores
+
+* improve MCP gateway auth performance and fix e2e coverage ([#3503](https://github.com/archestra-ai/archestra/issues/3503)) ([ad2acfd](https://github.com/archestra-ai/archestra/commit/ad2acfdd15d70a481e82920e3b0cc43a720c8a0d))
+
+## [1.1.36](https://github.com/archestra-ai/archestra/compare/platform-v1.1.35...platform-v1.1.36) (2026-03-22)
+
+
+### Features
+
+* white-label built-in MCP server branding ([#3496](https://github.com/archestra-ai/archestra/issues/3496)) ([c11c170](https://github.com/archestra-ai/archestra/commit/c11c170be5a874a853205443c0a57d77a2799a46)), closes [#3475](https://github.com/archestra-ai/archestra/issues/3475)
+
+
+### Bug Fixes
+
+* generate https oauth metadata behind reverse proxies ([#3400](https://github.com/archestra-ai/archestra/issues/3400)) ([cabc557](https://github.com/archestra-ai/archestra/commit/cabc557f18c6db3f3481a4129a42460c7eb43875))
+
+## [1.1.35](https://github.com/archestra-ai/archestra/compare/platform-v1.1.34...platform-v1.1.35) (2026-03-20)
+
+
+### Bug Fixes
+
+* use listInferenceProfile to discover models in aws ([#3482](https://github.com/archestra-ai/archestra/issues/3482)) ([98ecc15](https://github.com/archestra-ai/archestra/commit/98ecc15c3d9f3e33ced9cc371794aff2d95f7ed7))
+
+## [1.1.34](https://github.com/archestra-ai/archestra/compare/platform-v1.1.33...platform-v1.1.34) (2026-03-20)
+
+
+### Bug Fixes
+
+* bring back chat autoscroll ([#3480](https://github.com/archestra-ai/archestra/issues/3480)) ([c22e87d](https://github.com/archestra-ai/archestra/commit/c22e87d2f2ffbf261e6fc90b8508e1a6edce3563))
+* Prevent leak of chosen model and agent for same browser ([#3485](https://github.com/archestra-ai/archestra/issues/3485)) ([ffa301f](https://github.com/archestra-ai/archestra/commit/ffa301f992e6133f1595eba552f829a8f49571c2))
+* tighten agent builder MCP assignment and chat tool state handling ([#3477](https://github.com/archestra-ai/archestra/issues/3477)) ([4b15ac8](https://github.com/archestra-ai/archestra/commit/4b15ac807d6282cfd9ed708f83e20dbc227e510e))
+
+
+### Dependencies
+
+* bump @microsoft/msgraph-sdk-users from 1.0.0-preview.77 to 1.0.0-preview.80 in /platform ([#3479](https://github.com/archestra-ai/archestra/issues/3479)) ([5179285](https://github.com/archestra-ai/archestra/commit/5179285a6ab83124f18a5f5537a122a57e13f595))
+
+
+### Miscellaneous Chores
+
+* more debug info in mini view ([#3467](https://github.com/archestra-ai/archestra/issues/3467)) ([7931be7](https://github.com/archestra-ai/archestra/commit/7931be701131f6e7345b1f116dd1fa334dd35bcb))
+* revert prevent leak of chosen model and agent for same browser ([#3486](https://github.com/archestra-ai/archestra/issues/3486)) ([87369bd](https://github.com/archestra-ai/archestra/commit/87369bdeebbfc1da734bd234bfbdde96a549d412))
+
+## [1.1.33](https://github.com/archestra-ai/archestra/compare/platform-v1.1.32...platform-v1.1.33) (2026-03-19)
+
+
+### Bug Fixes
+
+* fix github mcp installation ([#3465](https://github.com/archestra-ai/archestra/issues/3465)) ([785873e](https://github.com/archestra-ai/archestra/commit/785873e4412bc9111745b3c6142906c76c5b95ff))
+
+
+### Code Refactoring
+
+* standardize dialogs, settings blocks, and time selectors ([#3470](https://github.com/archestra-ai/archestra/issues/3470)) ([cdddefe](https://github.com/archestra-ai/archestra/commit/cdddefe4594d58333f57be2be5d691419d8fc539)), closes [#3462](https://github.com/archestra-ai/archestra/issues/3462) [#3464](https://github.com/archestra-ai/archestra/issues/3464)
+
+
+### Miscellaneous Chores
+
+* clarify current model ui ([#3472](https://github.com/archestra-ai/archestra/issues/3472)) ([2c8662f](https://github.com/archestra-ai/archestra/commit/2c8662f5aab893cd7d8d8743d2a4c6d71302d39d)), closes [#3463](https://github.com/archestra-ai/archestra/issues/3463)
+* Improve TOON compression docs and LLM settings help ([#3466](https://github.com/archestra-ai/archestra/issues/3466)) ([174a6f5](https://github.com/archestra-ai/archestra/commit/174a6f569a0d272549aad5c3fe78e64b388426a1)), closes [#2766](https://github.com/archestra-ai/archestra/issues/2766)
+
+## [1.1.32](https://github.com/archestra-ai/archestra/compare/platform-v1.1.31...platform-v1.1.32) (2026-03-19)
+
+
+### Features
+
+* **docs:** annotate OpenAPI operations with RBAC metadata ([#3447](https://github.com/archestra-ai/archestra/issues/3447)) ([e7bd55b](https://github.com/archestra-ai/archestra/commit/e7bd55bb2c5925e20ab2fe7dd04a1d1c85811e41))
+
+
+### Bug Fixes
+
+* avoid duplicate metrics registration in web pods ([#3457](https://github.com/archestra-ai/archestra/issues/3457)) ([07d5a45](https://github.com/archestra-ai/archestra/commit/07d5a45a52f7958eb488a63b6b0232816e9e6148))
+* avoid duplicate metrics registration on web startup ([#3456](https://github.com/archestra-ai/archestra/issues/3456)) ([9097272](https://github.com/archestra-ai/archestra/commit/9097272cd0f5937a6f261209b9e847877f1e21d9))
+* harden settings team members and api key creation ([#3450](https://github.com/archestra-ai/archestra/issues/3450)) ([3c7d3c3](https://github.com/archestra-ai/archestra/commit/3c7d3c3b3be73f1633a0bdcc1330567abb6bcdb4))
+* normalize anthropic to bedroc format ([#3448](https://github.com/archestra-ai/archestra/issues/3448)) ([82044dd](https://github.com/archestra-ai/archestra/commit/82044dd39f99d308b8c77d6f85f76502dcf03a35))
+* restore Gemini tool progress ([#3454](https://github.com/archestra-ai/archestra/issues/3454)) ([3d650e0](https://github.com/archestra-ai/archestra/commit/3d650e0ddd725583d2bd2aa5183cfcf33ffff313))
+* restore knowledge base and worker metrics dashboards ([#3453](https://github.com/archestra-ai/archestra/issues/3453)) ([645244f](https://github.com/archestra-ai/archestra/commit/645244ffe2d910aca1235588bcabd589eb40ca29))
+* tighten knowledge base dashboard aggregations ([#3459](https://github.com/archestra-ai/archestra/issues/3459)) ([abb1838](https://github.com/archestra-ai/archestra/commit/abb1838f111e0aba826353cad1ae9a743156d887))
+
+
+### Miscellaneous Chores
+
+* Refactor dual LLM into built-in agents ([#3455](https://github.com/archestra-ai/archestra/issues/3455)) ([ac67158](https://github.com/archestra-ai/archestra/commit/ac67158b672d1ca93f67e7d23249875752b9f568))
+* remove LLM proxy mock clients ([#3452](https://github.com/archestra-ai/archestra/issues/3452)) ([e32bf9e](https://github.com/archestra-ai/archestra/commit/e32bf9e478df5cede9f44076a38d436a8bead80d))
+
+## [1.1.31](https://github.com/archestra-ai/archestra/compare/platform-v1.1.30...platform-v1.1.31) (2026-03-18)
+
+
+### Bug Fixes
+
+* apply rbac to agent mcp tools ([#3444](https://github.com/archestra-ai/archestra/issues/3444)) ([95b7bee](https://github.com/archestra-ai/archestra/commit/95b7bee3def8c57bd729ab0da63a0f1f485f477c))
+* role permission UI, chat tool call UX, and MCP server docs/codegen ([#3443](https://github.com/archestra-ai/archestra/issues/3443)) ([e961a98](https://github.com/archestra-ai/archestra/commit/e961a9868ddbbdb03e0785205ac3c14f168d9c91))
+
+## [1.1.30](https://github.com/archestra-ai/archestra/compare/platform-v1.1.29...platform-v1.1.30) (2026-03-18)
+
+
+### Miscellaneous Chores
+
+* kb query permission ([#3442](https://github.com/archestra-ai/archestra/issues/3442)) ([8399dc9](https://github.com/archestra-ai/archestra/commit/8399dc917c2c318159662bfa408379911908554c))
+* reuse shared llm selectors in agent and knowledge settings ([#3441](https://github.com/archestra-ai/archestra/issues/3441)) ([13ca86a](https://github.com/archestra-ai/archestra/commit/13ca86aab55f965096fd210c87926ff233c78fb7))
+* reuse the shared chat API key dialog ([#3439](https://github.com/archestra-ai/archestra/issues/3439)) ([f6e46e3](https://github.com/archestra-ai/archestra/commit/f6e46e393e3b85a1a363e36f9dd0b7197858d468))
+
 ## [1.1.29](https://github.com/archestra-ai/archestra/compare/platform-v1.1.28...platform-v1.1.29) (2026-03-18)
 
 

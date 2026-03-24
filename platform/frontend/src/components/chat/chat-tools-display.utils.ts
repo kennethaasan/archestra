@@ -1,14 +1,19 @@
-import { TOOL_SWAP_AGENT_FULL_NAME, TOOL_TODO_WRITE_FULL_NAME } from "@shared";
+import {
+  type ArchestraToolShortName,
+  TOOL_SWAP_AGENT_SHORT_NAME,
+  TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME,
+  TOOL_TODO_WRITE_SHORT_NAME,
+} from "@shared";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
+import {
+  applyPendingActions,
+  type PendingToolAction,
+} from "@/lib/chat/pending-tool-state";
 import {
   parseAuthRequired,
   parseExpiredAuth,
   parsePolicyDenied,
-} from "@/lib/llmProviders/common";
-import {
-  applyPendingActions,
-  type PendingToolAction,
-} from "@/lib/pending-tool-state";
+} from "@/lib/interactions/llmProviders/common";
 
 /**
  * Compute the default set of enabled tool IDs for a conversation.
@@ -117,12 +122,15 @@ export function isCompactEligible(params: {
   part: ToolUIPart | DynamicToolUIPart;
   toolResultPart: ToolUIPart | DynamicToolUIPart | null;
   toolName: string;
+  getToolShortName?: (toolName: string) => ArchestraToolShortName | null;
 }): boolean {
-  const { part, toolResultPart, toolName } = params;
+  const { part, toolResultPart, toolName, getToolShortName } = params;
 
+  const shortName = getToolShortName?.(toolName);
   if (
-    toolName === TOOL_SWAP_AGENT_FULL_NAME ||
-    toolName === TOOL_TODO_WRITE_FULL_NAME
+    shortName === TOOL_SWAP_AGENT_SHORT_NAME ||
+    shortName === TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME ||
+    shortName === TOOL_TODO_WRITE_SHORT_NAME
   ) {
     return false;
   }

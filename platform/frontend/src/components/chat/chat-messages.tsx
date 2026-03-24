@@ -1,17 +1,22 @@
 import type { UIMessage } from "@ai-sdk/react";
 import {
+  type ArchestraToolShortName,
   SWAP_AGENT_FAILED_POKE_TEXT,
   SWAP_AGENT_POKE_PREFIX,
   SWAP_AGENT_POKE_TEXT,
   SWAP_TO_DEFAULT_AGENT_POKE_TEXT,
   TOOL_SWAP_AGENT_FULL_NAME,
+  TOOL_SWAP_AGENT_SHORT_NAME,
   TOOL_SWAP_TO_DEFAULT_AGENT_FULL_NAME,
+  TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME,
   TOOL_TODO_WRITE_FULL_NAME,
+  TOOL_TODO_WRITE_SHORT_NAME,
 } from "@shared";
 import type { ChatStatus, DynamicToolUIPart, ToolUIPart } from "ai";
 import { CheckCircleIcon, ClockIcon } from "lucide-react";
 import {
   Fragment,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -38,27 +43,34 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool";
-import { useHasPermissions, useSession } from "@/lib/auth.query";
-import { useProfileToolsWithIds } from "@/lib/chat.query";
-import { useUpdateChatMessage } from "@/lib/chat-message.query";
-import { useInternalMcpCatalog } from "@/lib/internal-mcp-catalog.query";
+import { useHasPermissions, useSession } from "@/lib/auth/auth.query";
+import { useProfileToolsWithIds } from "@/lib/chat/chat.query";
+import { useUpdateChatMessage } from "@/lib/chat/chat-message.query";
+import { hasThinkingTags, parseThinkingTags } from "@/lib/chat/parse-thinking";
+import type { ModelSource } from "@/lib/chat/use-chat-preferences";
+import { useAppIconLogo } from "@/lib/hooks/use-app-name";
 import {
   extractCatalogIdFromInstallUrl,
   extractIdsFromReauthUrl,
   parseAuthRequired,
   parseExpiredAuth,
   parsePolicyDenied,
-} from "@/lib/llmProviders/common";
-import { useMcpInstallOrchestrator } from "@/lib/mcp-install-orchestrator.hook";
+} from "@/lib/interactions/llmProviders/common";
+import { useArchestraMcpIdentity } from "@/lib/mcp/archestra-mcp-server";
+import { useInternalMcpCatalog } from "@/lib/mcp/internal-mcp-catalog.query";
+import { useMcpInstallOrchestrator } from "@/lib/mcp/mcp-install-orchestrator.hook";
 import { useOrganization } from "@/lib/organization.query";
-import { hasThinkingTags, parseThinkingTags } from "@/lib/parse-thinking";
 import { cn } from "@/lib/utils";
 import { AuthRequiredTool } from "./auth-required-tool";
-import { extractFileAttachments, hasTextPart } from "./chat-messages.utils";
+import {
+  extractFileAttachments,
+  filterOptimisticToolCalls,
+  hasTextPart,
+  identifyCompactToolGroups,
+} from "./chat-messages.utils";
 import {
   getToolErrorText,
   getToolHeaderState,
-  isCompactEligible,
 } from "./chat-tools-display.utils";
 import { CompactToolGroup } from "./compact-tool-call";
 import { EditableAssistantMessage } from "./editable-assistant-message";
@@ -77,6 +89,11 @@ interface ChatMessagesProps {
   agentId?: string;
   messages: UIMessage[];
   status: ChatStatus;
+  optimisticToolCalls?: Array<{
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+  }>;
   isLoadingConversation?: boolean;
   onMessagesUpdate?: (messages: UIMessage[]) => void;
   onUserMessageEdit?: (
@@ -85,16 +102,15 @@ interface ChatMessagesProps {
     editedPartIndex: number,
   ) => void;
   error?: Error | null;
-  // Empty state customization
-  agentName?: string;
-  suggestedPrompt?: string | null;
-  onSuggestedPromptClick?: () => void;
   /** Callback for tool approval responses (approve/deny) */
   onToolApprovalResponse?: (params: {
     id: string;
     approved: boolean;
     reason?: string;
   }) => void;
+  agentName?: string;
+  selectedModel?: string;
+  modelSource?: ModelSource | null;
 }
 
 // Type guards for tool parts
@@ -120,16 +136,17 @@ function isToolPart(part: any): part is {
 export function ChatMessages({
   conversationId,
   agentId,
-  agentName,
-  suggestedPrompt,
-  onSuggestedPromptClick,
   messages,
   status,
+  optimisticToolCalls = [],
   isLoadingConversation = false,
   onMessagesUpdate,
   onUserMessageEdit,
   error = null,
   onToolApprovalResponse,
+  agentName,
+  selectedModel,
+  modelSource,
 }: ChatMessagesProps) {
   const isStreamingStalled = useStreamingStallDetection(messages, status);
   const { data: session } = useSession();
@@ -138,9 +155,6 @@ export function ChatMessages({
   // Track editing by messageId-partIndex to support multiple text parts per message
   const [editingPartKey, setEditingPartKey] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const { data: userCanCreateAgent } = useHasPermissions({
-    agent: ["create"],
-  });
   const { data: canExpandToolCalls } = useHasPermissions({
     chatExpandToolCalls: ["enable"],
   });
@@ -148,7 +162,21 @@ export function ChatMessages({
     mcpRegistry: ["read"],
   });
   const { data: organization } = useOrganization();
+  const appIconLogo = useAppIconLogo();
+  const { getToolName, getToolShortName } = useArchestraMcpIdentity();
   const orchestrator = useMcpInstallOrchestrator();
+  const nonCompactToolNames = useMemo(
+    () =>
+      new Set([
+        TOOL_SWAP_AGENT_FULL_NAME,
+        TOOL_SWAP_TO_DEFAULT_AGENT_FULL_NAME,
+        TOOL_TODO_WRITE_FULL_NAME,
+        getToolName(TOOL_SWAP_AGENT_SHORT_NAME),
+        getToolName(TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME),
+        getToolName(TOOL_TODO_WRITE_SHORT_NAME),
+      ]),
+    [getToolName],
+  );
 
   // Build tool name → icon map from agent tools + catalog data
   const { data: agentTools } = useProfileToolsWithIds(agentId);
@@ -173,8 +201,7 @@ export function ChatMessages({
     return map;
   }, [agentTools, catalogItems]);
 
-  // Initialize mutation hook with conversationId (use empty string as fallback for hook rules)
-  const updateChatMessageMutation = useUpdateChatMessage(conversationId || "");
+  const updateChatMessageMutation = useUpdateChatMessage(conversationId);
 
   // Debounce resize mode change when exiting edit mode to let DOM settle
   const isEditing = editingPartKey !== null;
@@ -248,60 +275,28 @@ export function ChatMessages({
     }
   };
 
+  const pendingToolCalls = useMemo(
+    () => filterOptimisticToolCalls(messages, optimisticToolCalls),
+    [messages, optimisticToolCalls],
+  );
+
+  const isResponseInProgress = status === "streaming" || status === "submitted";
+
+  // Only auto-scroll on content resize during streaming.
+  // When idle, user interactions like expanding tool calls should not
+  // trigger scroll — returning the current scrollTop keeps position stable.
+  const preventResizeScroll = useCallback(
+    (_target: number, { scrollElement }: { scrollElement: HTMLElement }) =>
+      scrollElement.scrollTop,
+    [],
+  );
+
   if (messages.length === 0) {
     // Don't show "start conversation" message while loading - prevents flash of empty state
     if (isLoadingConversation) {
       return null;
     }
-
-    // Unified empty state for both new chat and existing chat with no messages
-    if (agentName) {
-      return (
-        <div className="flex items-center justify-center h-full relative">
-          <div className="text-center space-y-6 max-w-2xl px-4 relative">
-            <p className="text-lg text-muted-foreground relative">
-              Chat with{" "}
-              <span className="font-medium text-foreground truncate inline-block max-w-sm align-bottom">
-                {agentName}
-              </span>{" "}
-              agent,
-              <br />
-              {userCanCreateAgent && (
-                <>
-                  or{" "}
-                  <a
-                    href="/agents?create=true"
-                    className="text-primary hover:underline"
-                  >
-                    create a new one
-                  </a>
-                </>
-              )}
-            </p>
-            {suggestedPrompt && onSuggestedPromptClick && (
-              <button
-                type="button"
-                onClick={onSuggestedPromptClick}
-                className="w-full text-left cursor-pointer hover:opacity-80 transition-opacity"
-              >
-                <Message from="assistant" className="max-w-none justify-center">
-                  <MessageContent className="max-w-none text-left">
-                    <Response>{suggestedPrompt}</Response>
-                  </MessageContent>
-                </Message>
-              </button>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // Fallback for when no agent name is provided
-    return (
-      <div className="flex-1 flex h-full items-center justify-center text-center text-muted-foreground">
-        <p className="text-sm">Start a conversation by sending a message</p>
-      </div>
-    );
+    return null;
   }
 
   // Find the index of the message being edited
@@ -328,12 +323,11 @@ export function ChatMessages({
     return nextMessage.role !== "assistant";
   });
 
-  const isResponseInProgress = status === "streaming" || status === "submitted";
-
   return (
     <Conversation
       className="h-full"
       resize={instantResize ? "instant" : "smooth"}
+      targetScrollTop={isResponseInProgress ? undefined : preventResizeScroll}
     >
       <ConversationContent>
         <div className="max-w-4xl mx-auto relative pb-8">
@@ -349,9 +343,11 @@ export function ChatMessages({
                 className={cn(isDimmed && "opacity-40 transition-opacity")}
               >
                 {(() => {
-                  const { groupMap, consumedIndices } = identifyCompactGroups(
-                    message.parts,
-                  );
+                  const { groupMap, consumedIndices } =
+                    identifyCompactToolGroups(message.parts, {
+                      nonCompactToolNames,
+                      getToolShortName,
+                    });
                   const partKeyTracker = new Map<string, number>();
                   return message.parts?.map((part, i) => {
                     const partKey = getMessagePartKey(
@@ -365,7 +361,7 @@ export function ChatMessages({
                       if (!group) return null;
                       return (
                         <CompactToolGroup
-                          key={getCompactGroupKey(message.id, group.entries)}
+                          key={getCompactGroupKey(message.id, group.startIndex)}
                           tools={group.entries.map((entry) => ({
                             key: getToolEntryKey(message.id, entry),
                             toolName: entry.toolName,
@@ -765,6 +761,7 @@ export function ChatMessages({
                             onReauthMcp={
                               orchestrator.triggerReauthByCatalogIdAndServerId
                             }
+                            getToolShortName={getToolShortName}
                           />
                         );
                       }
@@ -807,6 +804,7 @@ export function ChatMessages({
                               onReauthMcp={
                                 orchestrator.triggerReauthByCatalogIdAndServerId
                               }
+                              getToolShortName={getToolShortName}
                             />
                           );
                         }
@@ -817,7 +815,10 @@ export function ChatMessages({
                     }
                   });
                 })()}
-                <SwapAgentDivider message={message} />
+                <SwapAgentDivider
+                  message={message}
+                  getToolShortName={getToolShortName}
+                />
               </div>
             );
           })}
@@ -827,14 +828,38 @@ export function ChatMessages({
               error={error}
               conversationId={conversationId}
               supportMessage={organization?.chatErrorSupportMessage}
+              agentName={agentName}
+              selectedModel={selectedModel}
+              modelSource={modelSource}
             />
           )}
+          {pendingToolCalls.map((toolCall) => (
+            <MessageTool
+              part={{
+                type: "dynamic-tool",
+                toolName: toolCall.toolName,
+                toolCallId: toolCall.toolCallId,
+                state: "input-available",
+                input: toolCall.input,
+              }}
+              key={`optimistic-tool-${toolCall.toolCallId}`}
+              toolResultPart={null}
+              toolName={toolCall.toolName}
+              agentId={agentId}
+              isDebugging={isDebugging}
+              canExpandToolCalls={canExpandToolCalls}
+              onToolApprovalResponse={onToolApprovalResponse}
+              onInstallMcp={orchestrator.triggerInstallByCatalogId}
+              onReauthMcp={orchestrator.triggerReauthByCatalogIdAndServerId}
+              getToolShortName={getToolShortName}
+            />
+          ))}
           {(status === "submitted" ||
             (status === "streaming" && isStreamingStalled)) && (
             <div className="absolute bottom-[-10] left-0">
               <Message from="assistant">
                 <img
-                  src={organization?.iconLogo || "/logo.png"}
+                  src={appIconLogo}
                   alt="Loading logo"
                   className="object-contain h-6 w-auto animate-[bounce_700ms_ease_200ms_infinite]"
                 />
@@ -849,17 +874,8 @@ export function ChatMessages({
   );
 }
 
-function getCompactGroupKey(
-  messageId: string,
-  entries: Array<{
-    toolName: string;
-    part: DynamicToolUIPart | ToolUIPart;
-  }>,
-): string {
-  const signature = entries
-    .map((entry) => entry.part.toolCallId ?? entry.toolName)
-    .join(":");
-  return `${messageId}-compact-${signature}`;
+function getCompactGroupKey(messageId: string, startIndex: number): string {
+  return `${messageId}-compact-${startIndex}`;
 }
 
 function getToolEntryKey(
@@ -949,6 +965,7 @@ function MessageTool({
   onToolApprovalResponse,
   onInstallMcp,
   onReauthMcp,
+  getToolShortName,
 }: {
   part: ToolUIPart | DynamicToolUIPart;
   toolResultPart: ToolUIPart | DynamicToolUIPart | null;
@@ -963,6 +980,7 @@ function MessageTool({
   }) => void;
   onInstallMcp?: (catalogId: string) => void;
   onReauthMcp?: (catalogId: string, serverId: string) => void;
+  getToolShortName: (toolName: string) => ArchestraToolShortName | null;
 }) {
   const errorText = getToolErrorText({ part, toolResultPart });
 
@@ -1058,15 +1076,19 @@ function MessageTool({
 
   // swap_agent / swap_to_default_agent are rendered as dividers after all message parts (see SwapAgentDivider below)
   // Show the raw tool call when the user's name ends with "(debugging)"
+  const swapToolShortName = getSwapToolShortName({
+    toolName,
+    getToolShortName,
+  });
   if (
     !isDebugging &&
-    (toolName === TOOL_SWAP_AGENT_FULL_NAME ||
-      toolName === TOOL_SWAP_TO_DEFAULT_AGENT_FULL_NAME)
+    (swapToolShortName === TOOL_SWAP_AGENT_SHORT_NAME ||
+      swapToolShortName === TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME)
   ) {
     return null;
   }
 
-  if (toolName === TOOL_TODO_WRITE_FULL_NAME) {
+  if (getToolShortName(toolName) === TOOL_TODO_WRITE_SHORT_NAME) {
     return (
       <TodoWriteTool
         part={part}
@@ -1178,126 +1200,6 @@ const getHeaderState = ({
   return getToolHeaderState({ state, toolResultPart, errorText });
 };
 
-type CompactGroup = {
-  startIndex: number;
-  entries: Array<{
-    partIndex: number;
-    toolName: string;
-    // biome-ignore lint/suspicious/noExplicitAny: Tool parts have dynamic structure
-    part: any;
-    // biome-ignore lint/suspicious/noExplicitAny: Tool result parts have dynamic structure
-    toolResultPart: any;
-    // biome-ignore lint/suspicious/noExplicitAny: Error text extraction is dynamic
-    errorText: any;
-  }>;
-};
-
-/**
- * Pre-processes message parts to identify groups of consecutive compact-eligible tools.
- * Returns a map from the first part index of each group to the group data,
- * and a set of all part indices consumed by compact groups.
- *
- * Pass 1: Build a map from toolCallId → result part index, and identify invocation indices.
- * Pass 2: Walk invocations in order, skipping result-only parts and non-tool parts,
- *          grouping consecutive compact-eligible invocations together.
- */
-function identifyCompactGroups(
-  // biome-ignore lint/suspicious/noExplicitAny: Message parts have dynamic structure
-  parts: any[] | undefined,
-): { groupMap: Map<number, CompactGroup>; consumedIndices: Set<number> } {
-  const groupMap = new Map<number, CompactGroup>();
-  const consumedIndices = new Set<number>();
-
-  if (!parts) return { groupMap, consumedIndices };
-
-  // Pass 1: Identify which parts are "duplicate result" parts (a result that
-  // immediately follows its invocation with the same toolCallId) vs primary
-  // tool parts. A tool part is primary if it's the first occurrence of its
-  // toolCallId. The second occurrence (the result) is a duplicate.
-  const seenToolCallIds = new Set<string>();
-  const duplicateResultIndices = new Set<number>();
-  const invocationIndices: number[] = [];
-  // Map from toolCallId to the index of the duplicate result part
-  const resultByCallId = new Map<string, number>();
-
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    if (!isToolPart(part)) continue;
-
-    const callId = part.toolCallId;
-    if (callId && seenToolCallIds.has(callId)) {
-      // This is a duplicate result part
-      duplicateResultIndices.add(i);
-      resultByCallId.set(callId, i);
-    } else {
-      // Primary tool part (may have state "output-available" if combined)
-      if (callId) seenToolCallIds.add(callId);
-      invocationIndices.push(i);
-    }
-  }
-
-  // Pass 2: Group consecutive compact-eligible invocations
-  let currentGroup: CompactGroup | null = null;
-
-  for (const idx of invocationIndices) {
-    // biome-ignore lint/suspicious/noExplicitAny: Dynamic tool parts have toolName property
-    const rawPart = parts[idx] as any;
-
-    const toolName: string | null =
-      rawPart.type === "dynamic-tool"
-        ? rawPart.toolName
-        : rawPart.type?.startsWith("tool-")
-          ? rawPart.type.replace("tool-", "")
-          : null;
-
-    if (!toolName) {
-      if (currentGroup && currentGroup.entries.length > 0) {
-        groupMap.set(currentGroup.startIndex, currentGroup);
-        currentGroup = null;
-      }
-      continue;
-    }
-
-    // Find matching result part
-    const resultIdx = rawPart.toolCallId
-      ? resultByCallId.get(rawPart.toolCallId)
-      : undefined;
-    const toolResultPart = resultIdx !== undefined ? parts[resultIdx] : null;
-
-    const errorText = getToolErrorText({ part: rawPart, toolResultPart });
-
-    if (isCompactEligible({ part: rawPart, toolResultPart, toolName })) {
-      if (!currentGroup) {
-        currentGroup = { startIndex: idx, entries: [] };
-      }
-      currentGroup.entries.push({
-        partIndex: idx,
-        toolName,
-        part: rawPart,
-        toolResultPart,
-        errorText,
-      });
-      consumedIndices.add(idx);
-      if (resultIdx !== undefined) {
-        consumedIndices.add(resultIdx);
-      }
-    } else {
-      // Non-compact tool breaks the group
-      if (currentGroup && currentGroup.entries.length > 0) {
-        groupMap.set(currentGroup.startIndex, currentGroup);
-        currentGroup = null;
-      }
-    }
-  }
-
-  // Finalize last group
-  if (currentGroup && currentGroup.entries.length > 0) {
-    groupMap.set(currentGroup.startIndex, currentGroup);
-  }
-
-  return { groupMap, consumedIndices };
-}
-
 /**
  * Renders a "Switched to {agent}" divider after all parts of a message
  * that contains a swap_agent tool call.
@@ -1316,20 +1218,29 @@ function isSwapAgentPokeMessage(message: UIMessage): boolean {
   );
 }
 
-const SWAP_TOOL_NAMES = new Set([
-  TOOL_SWAP_AGENT_FULL_NAME,
-  `tool-${TOOL_SWAP_AGENT_FULL_NAME}`,
-  TOOL_SWAP_TO_DEFAULT_AGENT_FULL_NAME,
-  `tool-${TOOL_SWAP_TO_DEFAULT_AGENT_FULL_NAME}`,
-]);
-
-function SwapAgentDivider({ message }: { message: UIMessage }) {
+function SwapAgentDivider({
+  message,
+  getToolShortName,
+}: {
+  message: UIMessage;
+  getToolShortName: (toolName: string) => ArchestraToolShortName | null;
+}) {
   if (message.role !== "assistant") return null;
 
   for (const part of message.parts ?? []) {
     if (!isToolPart(part)) continue;
-    const type = part.type as string;
-    if (!SWAP_TOOL_NAMES.has(type)) continue;
+    const toolName = getRenderedToolName(part);
+    if (!toolName) continue;
+    const swapToolShortName = getSwapToolShortName({
+      toolName,
+      getToolShortName,
+    });
+    if (
+      swapToolShortName !== TOOL_SWAP_AGENT_SHORT_NAME &&
+      swapToolShortName !== TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME
+    ) {
+      continue;
+    }
 
     // Don't show divider if the swap tool errored
     if (hasSwapToolError(part, message.parts ?? [])) return null;
@@ -1337,8 +1248,7 @@ function SwapAgentDivider({ message }: { message: UIMessage }) {
     // Determine agent name for the divider
     let agentName = "another agent";
     const isSwapToDefault =
-      type === TOOL_SWAP_TO_DEFAULT_AGENT_FULL_NAME ||
-      type === `tool-${TOOL_SWAP_TO_DEFAULT_AGENT_FULL_NAME}`;
+      swapToolShortName === TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME;
 
     if (isSwapToDefault) {
       agentName = "default agent";
@@ -1371,6 +1281,35 @@ function SwapAgentDivider({ message }: { message: UIMessage }) {
         <div className="h-px flex-1 bg-border" />
       </div>
     );
+  }
+
+  return null;
+}
+
+function getRenderedToolName(
+  part: DynamicToolUIPart | ToolUIPart,
+): string | null {
+  if (part.type === "dynamic-tool" && typeof part.toolName === "string") {
+    return part.toolName;
+  }
+
+  if (part.type.startsWith("tool-")) {
+    return part.type.replace("tool-", "");
+  }
+
+  return null;
+}
+
+function getSwapToolShortName(params: {
+  toolName: string;
+  getToolShortName: (toolName: string) => ArchestraToolShortName | null;
+}) {
+  const shortName = params.getToolShortName(params.toolName);
+  if (
+    shortName === TOOL_SWAP_AGENT_SHORT_NAME ||
+    shortName === TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME
+  ) {
+    return shortName;
   }
 
   return null;

@@ -2,21 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  ARCHESTRA_MCP_SERVER_NAME,
-  DEFAULT_ARCHESTRA_TOOL_NAMES,
-  MCP_SERVER_TOOL_NAME_SEPARATOR,
-} from "@shared";
-import {
   type ArchestraToolShortName,
-  getArchestraMcpTools,
-} from "@/archestra-mcp-server";
+  DEFAULT_ARCHESTRA_TOOL_NAMES,
+  getArchestraToolShortName,
+} from "@shared";
+import { getArchestraMcpTools } from "@/archestra-mcp-server";
 import { toolShortNames as knowledgeManagementToolShortNames } from "@/archestra-mcp-server/knowledge-management";
+import { TOOL_PERMISSIONS } from "@/archestra-mcp-server/rbac";
 import logger from "@/logging";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const TOOL_PREFIX = `${ARCHESTRA_MCP_SERVER_NAME}${MCP_SERVER_TOOL_NAME_SEPARATOR}`;
+type ToolPermissionDisplay = string;
 
 // === Tool group definitions ===
 
@@ -179,33 +177,34 @@ lastUpdated: ${lastUpdated}
 function generateMarkdownBody(): string {
   const tools = getArchestraMcpTools();
 
-  const allPreInstalledShortNames = DEFAULT_ARCHESTRA_TOOL_NAMES.map((name) =>
-    name.startsWith(TOOL_PREFIX) ? name.slice(TOOL_PREFIX.length) : name,
+  const allPreInstalledShortNames = DEFAULT_ARCHESTRA_TOOL_NAMES.map(
+    (name) => getArchestraToolShortName(name) ?? name,
   );
 
   // Knowledge tools are conditionally assigned (only when knowledge sources are attached)
   const knowledgeToolSet = new Set<string>(knowledgeManagementToolShortNames);
   const preInstalledShortNames = allPreInstalledShortNames.filter(
-    (n) => !knowledgeToolSet.has(n),
+    (n): n is ArchestraToolShortName =>
+      isArchestraToolShortName(n) && !knowledgeToolSet.has(n),
   );
 
   // Group tools
   const grouped = new Map<
     ToolGroup,
     {
-      shortName: string;
+      shortName: ArchestraToolShortName;
       description: string;
+      requiredPermission: ToolPermissionDisplay;
       inputSchema: JsonSchema;
       outputSchema?: JsonSchema;
     }[]
   >();
 
   for (const tool of tools) {
-    const shortName = tool.name.startsWith(TOOL_PREFIX)
-      ? tool.name.slice(TOOL_PREFIX.length)
-      : tool.name;
+    const shortName = getArchestraToolShortName(tool.name) ?? tool.name;
 
-    const group = toolGroups[shortName as ArchestraToolShortName];
+    const typedShortName = shortName as ArchestraToolShortName;
+    const group = toolGroups[typedShortName];
     if (!group) {
       throw new Error(
         `Tool "${shortName}" has no group mapping in toolGroups. ` +
@@ -217,8 +216,9 @@ function generateMarkdownBody(): string {
       grouped.set(group, []);
     }
     grouped.get(group)?.push({
-      shortName,
+      shortName: typedShortName,
       description: truncateDescription(tool.description ?? ""),
+      requiredPermission: formatToolPermission(typedShortName),
       inputSchema: tool.inputSchema as JsonSchema,
       outputSchema: tool.outputSchema as JsonSchema | undefined,
     });
@@ -233,17 +233,18 @@ function generateMarkdownBody(): string {
   const referenceSections: string[] = [];
   for (const [group, groupTools] of sortedGroups) {
     let section = `### ${group}\n\n`;
-    section += "| Tool | Description |\n";
-    section += "|------|-------------|\n";
+    section += "| Tool | Description | Required RBAC Permission |\n";
+    section += "|------|-------------|--------------------------|\n";
 
     for (const tool of groupTools) {
-      section += `| \`${tool.shortName}\` | ${escapeTableCell(tool.description)} |\n`;
+      section += `| \`${tool.shortName}\` | ${escapeTableCell(tool.description)} | ${escapeTableCell(tool.requiredPermission)} |\n`;
     }
 
     // Add detailed input schemas for each tool in this group
     for (const tool of groupTools) {
       const schemaMarkdown = renderToolSchemas(
         tool.shortName,
+        tool.requiredPermission,
         tool.inputSchema,
         tool.outputSchema,
       );
@@ -256,8 +257,11 @@ function generateMarkdownBody(): string {
   }
 
   const preInstalledList = preInstalledShortNames
-    .map((n) => `\`${n}\``)
+    .map((n) => formatToolLink(n))
     .join(", ");
+  const queryKnowledgeSourcesPermission = formatToolPermission(
+    "query_knowledge_sources",
+  );
 
   return `
 <!--
@@ -269,7 +273,7 @@ The Archestra MCP Server is a built-in MCP server that ships with the platform a
 
 Most tools require explicit assignment to Agents or MCP Gateways before they can be used. The following tools are pre-installed on all new agents by default: ${preInstalledList}.
 
-Additionally, \`query_knowledge_sources\` is automatically assigned to Agents and MCP Gateways that have at least one [knowledge base](/platform-knowledge-bases) or [knowledge connector](/platform-knowledge-connectors) attached.
+Additionally, ${formatToolLink("query_knowledge_sources")} is automatically assigned to Agents and MCP Gateways that have at least one [knowledge base](/platform-knowledge-bases) or [knowledge connector](/platform-knowledge-connectors) attached. To use it, the user must have ${queryKnowledgeSourcesPermission}.
 
 All Archestra tools are prefixed with \`archestra__\` and are always trusted — they bypass tool invocation and trusted data policies.
 
@@ -277,7 +281,7 @@ All Archestra tools are prefixed with \`archestra__\` and are always trusted —
 
 Archestra tools are **trusted**, meaning they bypass [tool invocation policies](/platform-tool-invocation-policies) and [trusted data policies](/platform-trusted-data-policies) — the tool will always execute without policy evaluation.
 
-However, **RBAC (role-based access control) is still enforced**. Every tool is mapped to a required permission (resource + action). The \`tools/list\` endpoint dynamically filters tools so users only see tools they have permission to use. For example, a user without \`knowledgeBase:create\` permission will not see \`create_knowledge_base\` in their tool list and cannot execute it.
+However, **RBAC (role-based access control) is still enforced**. Every tool is mapped to a required permission (resource + action). The \`tools/list\` endpoint dynamically filters tools so users only see tools they have permission to use. For example, a user without \`knowledgeBase:create\` permission will not see ${formatToolLink("create_knowledge_base")} in their tool list and cannot execute it.
 
 ## Tools Reference
 
@@ -335,6 +339,27 @@ function escapeTableCell(text: string): string {
   return text.replace(/\|/g, "\\|");
 }
 
+export function formatToolPermission(
+  toolShortName: ArchestraToolShortName,
+): ToolPermissionDisplay {
+  const permission = TOOL_PERMISSIONS[toolShortName];
+  if (!permission) {
+    return "None (no additional RBAC permission required)";
+  }
+
+  return `\`${permission.resource}:${permission.action}\``;
+}
+
+function formatToolLink(toolShortName: ArchestraToolShortName): string {
+  return `[\`${toolShortName}\`](#${toolShortName})`;
+}
+
+function isArchestraToolShortName(
+  toolShortName: string,
+): toolShortName is ArchestraToolShortName {
+  return Object.hasOwn(toolGroups, toolShortName);
+}
+
 // === Input schema rendering ===
 
 interface JsonSchema {
@@ -347,11 +372,13 @@ interface JsonSchema {
 }
 
 function renderToolSchemas(
-  toolName: string,
+  toolName: ArchestraToolShortName,
+  requiredPermission: ToolPermissionDisplay,
   inputSchema: JsonSchema,
   outputSchema?: JsonSchema,
 ): string | null {
   let md = `#### ${toolName}\n\n`;
+  md += `Required RBAC permission: ${requiredPermission}\n\n`;
 
   const inputRows = renderSchemaRows(inputSchema);
   if (inputRows.length === 0) {

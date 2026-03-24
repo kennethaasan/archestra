@@ -21,7 +21,10 @@ import {
   ActiveFilterBadges,
   AgentScopeFilter,
 } from "@/components/agent-scope-filter";
-import { ConnectDialog } from "@/components/connect-dialog";
+import {
+  ConnectDialog,
+  ConnectDialogSection,
+} from "@/components/connect-dialog";
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { LoadingSpinner, LoadingWrapper } from "@/components/loading";
 import { PageLayout } from "@/components/page-layout";
@@ -36,16 +39,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { DEFAULT_SORT_BY, DEFAULT_SORT_DIRECTION } from "@/consts";
 import {
   useDeleteProfile,
   useProfile,
   useProfiles,
   useProfilesPaginated,
 } from "@/lib/agent.query";
-import { useHasPermissions } from "@/lib/auth.query";
+import { useHasPermissions } from "@/lib/auth/auth.query";
 import { authClient } from "@/lib/clients/auth/auth-client";
-import { useDataTableQueryParams } from "@/lib/use-data-table-query-params";
-import { DEFAULT_SORT_BY, DEFAULT_SORT_DIRECTION } from "@/lib/utils";
+import { useAppName } from "@/lib/hooks/use-app-name";
+import { useDataTableQueryParams } from "@/lib/hooks/use-data-table-query-params";
 import { AgentActions } from "./agent-actions";
 
 type AgentsInitialData = {
@@ -613,6 +617,7 @@ function Agents({ initialData }: { initialData?: AgentsInitialData }) {
 }
 
 function AgentConnectionColumns({ agentId }: { agentId: string }) {
+  const appName = useAppName();
   // Fetch agent data for A2A connection instructions
   const { data: profiles, isPending } = useProfiles();
   const agent = profiles?.find((p) => p.id === agentId);
@@ -626,8 +631,13 @@ function AgentConnectionColumns({ agentId }: { agentId: string }) {
   }
 
   return (
-    <div className="p-4 rounded-lg border bg-card">
-      <A2AConnectionInstructions agent={agent} />
+    <div className="space-y-6">
+      <ConnectDialogSection
+        title="A2A Connection"
+        description={`Connect directly to this agent with ${appName}'s A2A endpoint, tokens, deep links, and optional email invocation.`}
+      >
+        <A2AConnectionInstructions agent={agent} />
+      </ConnectDialogSection>
     </div>
   );
 }

@@ -3,9 +3,7 @@
 import {
   type archestraApiTypes,
   DEFAULT_PROVIDER_BASE_URLS,
-  DocsPage,
   E2eTestId,
-  getDocsUrl,
   PROVIDERS_WITH_OPTIONAL_API_KEY,
 } from "@shared";
 import { Building2, CheckCircle2, User, Users } from "lucide-react";
@@ -22,8 +20,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { useFeature, useProviderBaseUrls } from "@/lib/config.query";
-import { useTeams } from "@/lib/team.query";
+import { useFeature, useProviderBaseUrls } from "@/lib/config/config.query";
+import { getFrontendDocsUrl } from "@/lib/docs/docs";
+import { useTeams } from "@/lib/teams/team.query";
 import { LlmProviderSelectItems } from "./llm-provider-options";
 import { WithPermissions } from "./roles/with-permissions";
 
@@ -240,6 +239,11 @@ interface ChatApiKeyFormProps {
    */
   geminiVertexAiEnabled?: boolean;
   /**
+   * Whether Bedrock IAM auth mode is enabled.
+   * When true, Bedrock provider is disabled (uses AWS IAM instead of API key).
+   */
+  bedrockIamAuthEnabled?: boolean;
+  /**
    * Force-disable the provider selector (e.g. when only one provider is valid).
    */
   disableProvider?: boolean;
@@ -266,10 +270,12 @@ export function ChatApiKeyForm({
   form,
   isPending = false,
   geminiVertexAiEnabled = false,
+  bedrockIamAuthEnabled = false,
   disableProvider = false,
   allowedProviders,
   hideScopeAndPrimary = false,
 }: ChatApiKeyFormProps) {
+  const authDocsUrl = getFrontendDocsUrl("platform-llm-proxy-authentication");
   const byosEnabled = useFeature("byosEnabled");
   const { data: providerBaseUrls } = useProviderBaseUrls();
   const isEditMode = Boolean(existingKey);
@@ -403,6 +409,8 @@ export function ChatApiKeyForm({
                         key as CreateChatApiKeyBody["provider"];
                       const isGeminiDisabledByVertexAi =
                         providerKey === "gemini" && geminiVertexAiEnabled;
+                      const isBedrockDisabledByIamAuth =
+                        providerKey === "bedrock" && bedrockIamAuthEnabled;
                       const isAllowedProvider =
                         allowedProviderSet.has(providerKey);
 
@@ -413,9 +421,11 @@ export function ChatApiKeyForm({
                         disabled:
                           !isAllowedProvider ||
                           !config.enabled ||
-                          isGeminiDisabledByVertexAi,
+                          isGeminiDisabledByVertexAi ||
+                          isBedrockDisabledByIamAuth,
                         showComingSoon: !config.enabled,
                         showGeminiVertexAiBadge: isGeminiDisabledByVertexAi,
+                        showBedrockIamBadge: isBedrockDisabledByIamAuth,
                       };
                     })}
                 />
@@ -503,18 +513,20 @@ export function ChatApiKeyForm({
             <div className="space-y-2">
               <Label htmlFor="chat-api-key-scope">Scope</Label>
               <p className="text-xs text-muted-foreground">
-                Controls who can use this key.{" "}
-                <Link
-                  href={getDocsUrl(
-                    DocsPage.PlatformLlmProxyAuthentication,
-                    "api-key-scoping",
-                  )}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:text-foreground"
-                >
-                  Learn more
-                </Link>
+                Controls who can use this key.
+                {authDocsUrl && (
+                  <>
+                    {" "}
+                    <Link
+                      href={`${authDocsUrl}#api-key-scoping`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-foreground"
+                    >
+                      Learn more
+                    </Link>
+                  </>
+                )}
               </p>
               <Select
                 value={scope}

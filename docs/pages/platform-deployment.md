@@ -171,6 +171,31 @@ openssl rand -base64 32
 --set archestra.env.ARCHESTRA_AUTH_SECRET=<your-generated-secret>
 ```
 
+#### Diagnostics Storage
+
+To persist Node fatal error reports from the backend, enable chart-managed diagnostics storage. This mounts a persistent volume at `/var/diagnostics` in both the platform and worker pods and configures the backend to write diagnostic reports there automatically.
+
+```yaml
+archestra:
+  diagnostics:
+    enabled: true
+    size: 10Gi
+    storageClassName: standard-rwo
+    accessModes:
+      - ReadWriteOnce
+```
+
+Available values:
+
+- `archestra.diagnostics.enabled` - Enable diagnostics storage for backend reports
+- `archestra.diagnostics.existingClaimName` - Use an existing PVC instead of creating one
+- `archestra.diagnostics.storageClassName` - StorageClass for the chart-managed PVC
+- `archestra.diagnostics.size` - PVC storage request
+- `archestra.diagnostics.accessModes` - PVC access modes
+- `archestra.diagnostics.heapSnapshotsNearHeapLimit` - Optional Node heap snapshot count for near-OOM investigations
+
+If you run both the platform and worker pods and want them to write to the same claim concurrently, choose a storage class and access mode combination your cluster supports for that pattern.
+
 #### MCP Server Runtime Configuration
 
 **Orchestrator Settings**:
@@ -554,6 +579,11 @@ The following environment variables can be used to configure Archestra Platform.
   - Multiple URLs example: `http://archestra.default.svc:9000,https://api.archestra.example.com`
   - Use case: Set this when your external access URL differs from the internal service URL (common in Kubernetes with ingress/load balancers)
 
+- **`ARCHESTRA_TRUST_PROXY`** - Set this when Archestra runs behind a TLS-terminating reverse proxy (e.g. AWS ALB, nginx, Cloudflare) so that generated OAuth metadata and auth URLs use the external `https://` scheme rather than the internal `http://` scheme seen by the backend.
+  - Default: `false` (no proxy trust)
+  - Values: `true`, `false`, or a comma-separated list of trusted proxy IPs/CIDRs (e.g. `10.0.0.0/8,172.16.0.0/12`)
+  - Example: `ARCHESTRA_TRUST_PROXY=true`
+
 - **`ARCHESTRA_API_BODY_LIMIT`** - Maximum request body size for LLM proxy and chat routes.
   - Default: `50MB` (52428800 bytes)
   - Format: Numeric bytes (e.g., `52428800`) or human-readable (e.g., `50MB`, `100KB`, `1GB`)
@@ -691,6 +721,25 @@ These environment variables set the default base URL for each LLM provider. Per-
   - Set to `0` to create virtual keys that never expire by default
   - Users can override this per-key when creating virtual keys via the UI
 
+- **`ARCHESTRA_BEDROCK_IAM_AUTH_ENABLED`** - Enable AWS IAM authentication for Bedrock.
+  - Default: `false`
+  - Set to `true` to use the AWS credential chain (IRSA, instance profiles, env vars) instead of API keys
+  - See: [Bedrock IAM setup guide](/docs/platform-supported-llm-providers#iam-authentication-setup-irsa)
+
+- **`ARCHESTRA_BEDROCK_REGION`** - Explicit AWS region for Bedrock.
+  - Optional: Falls back to extracting from `ARCHESTRA_BEDROCK_BASE_URL`
+  - Example: `us-east-1`
+
+- **`ARCHESTRA_BEDROCK_ALLOWED_PROVIDERS`** - Filter Bedrock inference profiles by provider.
+  - Optional: When empty, all inference profiles are returned
+  - Comma-separated list of provider prefixes (e.g., `anthropic,amazon`)
+  - See: [Filtering Models by Provider](/docs/platform-supported-llm-providers#filtering-models-by-provider)
+
+- **`ARCHESTRA_BEDROCK_ALLOWED_INFERENCE_REGIONS`** - Filter Bedrock inference profiles by region.
+  - Optional: When empty, all inference regions are returned
+  - Comma-separated list of region prefixes (e.g., `us,global`)
+  - See: [Filtering Models by Inference Region](/docs/platform-supported-llm-providers#filtering-models-by-inference-region)
+
 - **`ARCHESTRA_GEMINI_VERTEX_AI_ENABLED`** - Enable Vertex AI mode for Gemini.
   - Default: `false`
   - Set to `true` to use Vertex AI instead of the Google AI Studio API
@@ -705,6 +754,7 @@ These environment variables set the default base URL for each LLM provider. Per-
 - **`ARCHESTRA_GEMINI_VERTEX_AI_LOCATION`** - Google Cloud location/region for Vertex AI.
   - Default: `us-central1`
   - Example: `us-central1`, `europe-west1`, `asia-northeast1`
+  - In our testing, `us-central1` and `global` returned the most reliable Gemini publisher model listings. Some regions, including `us-east1`, may return incomplete model catalogs from Vertex AI model discovery APIs.
 
 - **`ARCHESTRA_GEMINI_VERTEX_AI_CREDENTIALS_FILE`** - Path to Google Cloud service account JSON key file.
   - Optional: Only needed when running outside of GCP or without Workload Identity

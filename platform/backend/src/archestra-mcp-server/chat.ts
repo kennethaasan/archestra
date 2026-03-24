@@ -1,13 +1,14 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
-import { userHasPermission } from "@/auth/utils";
-import logger from "@/logging";
 import {
-  AgentModel,
-  AgentTeamModel,
-  ConversationModel,
-  OrganizationModel,
-} from "@/models";
+  TOOL_ARTIFACT_WRITE_SHORT_NAME,
+  TOOL_SWAP_AGENT_SHORT_NAME,
+  TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME,
+  TOOL_TODO_WRITE_SHORT_NAME,
+} from "@shared";
+import { z } from "zod";
+import { isAgentTypeAdmin } from "@/auth/agent-type-permissions";
+import logger from "@/logging";
+import { AgentModel, ConversationModel, OrganizationModel } from "@/models";
 import { resolveConversationLlmSelectionForAgent } from "@/services/conversation-llm-selection";
 import {
   catchError,
@@ -59,7 +60,7 @@ const ArtifactWriteOutputSchema = z.object({
 
 const registry = defineArchestraTools([
   defineArchestraTool({
-    shortName: "todo_write",
+    shortName: TOOL_TODO_WRITE_SHORT_NAME,
     title: "Write Todos",
     description:
       "Write todos to the current conversation. You have access to this tool to help you manage and plan tasks. Use it VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress. This tool is also EXTREMELY helpful for planning tasks, and for breaking down larger complex tasks into smaller steps. If you do not use this tool when planning, you may forget to do important tasks - and that is unacceptable. It is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.",
@@ -90,7 +91,7 @@ const registry = defineArchestraTools([
     },
   }),
   defineArchestraTool({
-    shortName: "swap_agent",
+    shortName: TOOL_SWAP_AGENT_SHORT_NAME,
     title: "Swap Agent",
     description:
       "Switch the current conversation to a different agent. The new agent will automatically continue the conversation. Use this when the user asks to switch to or talk to a different agent.",
@@ -112,7 +113,7 @@ const registry = defineArchestraTools([
     },
   }),
   defineArchestraTool({
-    shortName: "swap_to_default_agent",
+    shortName: TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME,
     title: "Swap to Default Agent",
     description:
       "Return to the default agent. You MUST call this — without asking the user — when you don't have the right tools to fulfill a request, when you are stuck and cannot help further, when you are done with your task, or when the user wants to go back. Always write a brief message before calling this tool summarizing why you are switching back (e.g. what you accomplished, what tool is missing, or why you cannot continue).",
@@ -123,7 +124,7 @@ const registry = defineArchestraTools([
     },
   }),
   defineArchestraTool({
-    shortName: "artifact_write",
+    shortName: TOOL_ARTIFACT_WRITE_SHORT_NAME,
     title: "Write Artifact",
     description:
       "Write or update a markdown artifact for the current conversation. Use this tool to maintain a persistent document that evolves throughout the conversation. The artifact should contain well-structured markdown content that can be referenced and updated as the conversation progresses. Each call to this tool completely replaces the existing artifact content. " +
@@ -213,13 +214,30 @@ async function handleSwapAgent(params: {
       );
     }
 
-    // Look up agent by name (search across all accessible agents)
+    // Look up agent by name
+    const isAdmin =
+      context.userId && context.organizationId
+        ? await isAgentTypeAdmin({
+            userId: context.userId,
+            organizationId: context.organizationId,
+            agentType: "agent",
+          })
+        : false;
+
     const results = await AgentModel.findAllPaginated(
       { limit: 5, offset: 0 },
       undefined,
-      { name: agentName, agentType: "agent" },
+      {
+        name: agentName,
+        agentType: "agent",
+        // Hide other users' personal agents. swap_agent is the primary
+        // Archestra MCP use-case and requires only the caller's own personal
+        // agents to be visible, even though admins can see all personal
+        // agents in the UI.
+        excludeOtherPersonalAgents: true,
+      },
       context.userId,
-      true,
+      isAdmin,
     );
 
     if (results.data.length === 0) {
@@ -236,24 +254,6 @@ async function handleSwapAgent(params: {
     if (targetAgent.id === contextAgent.id) {
       return errorResult(
         `Already using agent "${targetAgent.name}". Choose a different agent.`,
-      );
-    }
-
-    // Verify user has access via team-based authorization
-    const isAdmin = await userHasPermission(
-      context.userId,
-      context.organizationId,
-      "agent",
-      "admin",
-    );
-    const accessibleIds = await AgentTeamModel.getUserAccessibleAgentIds(
-      context.userId,
-      isAdmin,
-    );
-
-    if (!accessibleIds.includes(targetAgent.id)) {
-      return errorResult(
-        `You do not have access to agent "${targetAgent.name}".`,
       );
     }
 

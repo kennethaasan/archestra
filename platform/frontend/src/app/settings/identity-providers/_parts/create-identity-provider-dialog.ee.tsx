@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Form } from "@/components/ui/form";
 import { PermissionButton } from "@/components/ui/permission-button";
-import { useCreateIdentityProvider } from "@/lib/identity-provider.query.ee";
+import { useCreateIdentityProvider } from "@/lib/auth/identity-provider.query.ee";
 import { OidcConfigForm } from "./oidc-config-form.ee";
 import { SamlConfigForm } from "./saml-config-form.ee";
 
@@ -68,6 +68,7 @@ export function CreateIdentityProviderDialog({
               oidcConfig: {
                 issuer: "",
                 pkce: true,
+                enableRpInitiatedLogout: true,
                 clientId: "",
                 clientSecret: "",
                 discoveryEndpoint: "",
@@ -77,6 +78,7 @@ export function CreateIdentityProviderDialog({
                   email: "email",
                   name: "name",
                 },
+                overrideUserInfo: true,
               },
             }),
       }),
@@ -144,7 +146,7 @@ export function CreateIdentityProviderDialog({
             >
               {createIdentityProvider.isPending
                 ? "Creating..."
-                : "Create & Test"}
+                : "Create Provider"}
             </PermissionButton>
           </DialogStickyFooter>
         </DialogForm>

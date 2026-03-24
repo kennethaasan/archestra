@@ -27,6 +27,7 @@ import {
 } from "@/components/chat-api-key-form";
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { FormDialog } from "@/components/form-dialog";
+import { LlmModelSearchableSelect } from "@/components/llm-model-select";
 import {
   LlmProviderApiKeyOptionLabel,
   LlmProviderApiKeySelectItems,
@@ -45,7 +46,6 @@ import {
   DialogForm,
   DialogStickyFooter,
 } from "@/components/ui/dialog";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Select,
   SelectContent,
@@ -53,12 +53,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useChatModels } from "@/lib/chat-models.query";
+import { useChatModels } from "@/lib/chat/chat-models.query";
 import {
   useAvailableChatApiKeys,
   useCreateChatApiKey,
-} from "@/lib/chat-settings.query";
-import { useFeature } from "@/lib/config.query";
+} from "@/lib/chat/chat-settings.query";
+import { useFeature } from "@/lib/config/config.query";
 import {
   useDropEmbeddingConfig,
   useOrganization,
@@ -83,6 +83,10 @@ const EMBEDDING_DEFAULT_FORM_VALUES: ChatApiKeyFormValues = {
   ...DEFAULT_FORM_VALUES,
 };
 
+function getEmbeddingModelProvider(modelName: string): "openai" | "ollama" {
+  return modelName.startsWith("text-embedding") ? "openai" : "ollama";
+}
+
 function AddApiKeyDialog({
   open,
   onOpenChange,
@@ -94,6 +98,7 @@ function AddApiKeyDialog({
 }) {
   const createMutation = useCreateChatApiKey();
   const byosEnabled = useFeature("byosEnabled");
+  const bedrockIamAuthEnabled = useFeature("bedrockIamAuthEnabled");
   const geminiVertexAiEnabled = useFeature("geminiVertexAiEnabled");
 
   const defaults = forEmbedding
@@ -182,6 +187,7 @@ function AddApiKeyDialog({
             showConsoleLink={false}
             form={form}
             isPending={createMutation.isPending}
+            bedrockIamAuthEnabled={bedrockIamAuthEnabled}
             geminiVertexAiEnabled={geminiVertexAiEnabled}
             allowedProviders={forEmbedding ? ["openai", "ollama"] : undefined}
             hideScopeAndPrimary
@@ -380,11 +386,11 @@ function RerankerModelSelector({
 
   if (!selectedKeyId) {
     return (
-      <SearchableSelect
+      <LlmModelSearchableSelect
         value=""
         onValueChange={() => {}}
         placeholder="Select a reranker API key first..."
-        items={[]}
+        options={[]}
         className={cn("w-80")}
         disabled
       />
@@ -397,16 +403,16 @@ function RerankerModelSelector({
 
   const rerankerItems = models.map((model) => ({
     value: model.id,
-    label: model.displayName ?? model.id,
+    model: model.displayName ?? model.id,
+    provider: model.provider,
   }));
 
   return (
-    <SearchableSelect
+    <LlmModelSearchableSelect
       value={value ?? ""}
       onValueChange={(v) => onChange(v || null)}
+      options={rerankerItems}
       placeholder="Select reranking model..."
-      searchPlaceholder="Search models..."
-      items={rerankerItems}
       className={cn("w-80", pulse && "animate-pulse ring-2 ring-primary/40")}
       disabled={disabled}
     />
@@ -662,18 +668,19 @@ function KnowledgeSettingsContent() {
               >
                 {({ hasPermission }) => (
                   <div className="space-y-2 w-80">
-                    <SearchableSelect
+                    <LlmModelSearchableSelect
                       value={embeddingModel ?? ""}
                       onValueChange={(v) => setEmbeddingModel(v || null)}
-                      placeholder="Select embedding model..."
-                      searchPlaceholder="Search or type model name..."
-                      items={Object.entries(EMBEDDING_MODELS).map(
+                      options={Object.entries(EMBEDDING_MODELS).map(
                         ([value, model]) => ({
                           value,
-                          label: model.label,
+                          model: model.label,
                           description: model.description,
+                          provider: getEmbeddingModelProvider(value),
                         }),
                       )}
+                      placeholder="Select embedding model..."
+                      searchPlaceholder="Search or type model name..."
                       className={cn(
                         "w-80",
                         embeddingSetupStep === "select-model" &&
