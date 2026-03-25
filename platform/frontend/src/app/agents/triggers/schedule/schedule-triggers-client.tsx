@@ -28,15 +28,6 @@ import {
   type CronPresetOption,
 } from "@/components/ui/cron-expression-picker";
 import { DataTable } from "@/components/ui/data-table";
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PermissionButton } from "@/components/ui/permission-button";
@@ -55,7 +46,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useProfiles } from "@/lib/agent.query";
-import { useInteractions } from "@/lib/interactions/interaction.query";
 import {
   type ScheduleTrigger,
   type ScheduleTriggerRun,
@@ -79,6 +69,7 @@ import {
   buildTimezoneOptions,
   DEFAULT_FORM_STATE,
   deriveScheduleTriggerName,
+  getScheduleTriggerRunSessionId,
   getActiveMutationVariable,
   getRunNowTrackingState,
   type ScheduleTriggerFormState,
@@ -1448,7 +1439,7 @@ function ScheduleTriggerRunsTable({
   activeMutationTriggerId: string | null;
   onTrackedRunSettled: (runId: string) => void;
 }) {
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const router = useRouter();
   const { data: runsResponse, isLoading: runsLoading } = useScheduleTriggerRuns(
     trigger.id,
     {
@@ -1521,164 +1512,34 @@ function ScheduleTriggerRunsTable({
     [],
   );
 
-  const selectedRun =
-    selectedRunId === null
-      ? null
-      : (runsResponse?.data.find((run) => run.id === selectedRunId) ?? null);
-
   return (
-    <>
-      <section className="space-y-4">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-1">
-            <h2 className="text-sm font-medium text-foreground">Run history</h2>
-            <p className="text-sm text-muted-foreground/70">
-              The primary surface for this trigger. Open a row to inspect the
-              captured output.
-            </p>
-          </div>
-          {runNowState.isButtonSpinning && (
-            <span className="text-xs text-muted-foreground/60">
-              Refreshing active run
-            </span>
-          )}
+    <section className="space-y-4">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-sm font-medium text-foreground">Run history</h2>
+          <p className="text-sm text-muted-foreground/70">
+            Open a run to inspect the captured output and continue in chat.
+          </p>
         </div>
+        {runNowState.isButtonSpinning && (
+          <span className="text-xs text-muted-foreground/60">
+            Refreshing active run
+          </span>
+        )}
+      </div>
 
-        <DataTable
-          columns={columns}
-          data={runsResponse?.data ?? []}
-          isLoading={runsLoading}
-          emptyMessage="No runs recorded yet."
-          onRowClick={(run) => setSelectedRunId(run.id)}
-          hideSelectedCount
-          hidePaginationWhenSinglePage
-        />
-      </section>
-
-      <RunDetailDialog
-        run={selectedRun}
-        open={selectedRunId !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedRunId(null);
-          }
-        }}
+      <DataTable
+        columns={columns}
+        data={runsResponse?.data ?? []}
+        isLoading={runsLoading}
+        emptyMessage="No runs recorded yet."
+        onRowClick={(run) =>
+          router.push(`/agents/triggers/schedule/${trigger.id}/runs/${run.id}`)
+        }
+        hideSelectedCount
+        hidePaginationWhenSinglePage
       />
-    </>
-  );
-}
-
-function RunDetailDialog({
-  run,
-  open,
-  onOpenChange,
-}: {
-  run: ScheduleTriggerRun | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const sessionId = run ? getScheduleTriggerRunSessionId(run.id) : undefined;
-  const isRunActive = run?.status === "pending" || run?.status === "running";
-  const { data: interactionsResponse, isLoading: interactionsLoading } =
-    useInteractions({
-      sessionId,
-      limit: 50,
-      offset: 0,
-      sortBy: "createdAt",
-      sortDirection: "desc",
-      enabled: open && !!sessionId,
-      refetchInterval: open && isRunActive ? 3_000 : false,
-    });
-
-  const output = extractScheduleRunOutput(interactionsResponse?.data ?? []);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Run details</DialogTitle>
-          <DialogDescription>
-            Review the queued prompt, latest status, and captured output for
-            this execution.
-          </DialogDescription>
-        </DialogHeader>
-
-        <DialogBody className="space-y-6">
-          {!run ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading run details...
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <InlineMeta label="Status" value={run.status} />
-                <InlineMeta label="Kind" value={run.runKind} />
-                <InlineMeta
-                  label="Queued"
-                  value={formatTimestampWithRelative(run.createdAt)}
-                />
-                <InlineMeta
-                  label="Completed"
-                  value={formatTimestampWithRelative(
-                    run.completedAt,
-                    "In progress",
-                  )}
-                />
-              </div>
-
-              <QuietPanel title="Prompt snapshot">
-                <p className="whitespace-pre-wrap text-sm text-foreground">
-                  {run.messageTemplateSnapshot}
-                </p>
-              </QuietPanel>
-
-              <QuietPanel title="Output">
-                <div className="mb-3">
-                  <Link
-                    href={`/llm/logs/session/${encodeURIComponent(getScheduleTriggerRunSessionId(run.id))}`}
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-foreground"
-                  >
-                    Open session logs
-                    <ExternalLink className="h-3 w-3" />
-                  </Link>
-                </div>
-
-                {interactionsLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading captured output...
-                  </div>
-                ) : output ? (
-                  <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-sm">
-                    {output}
-                  </pre>
-                ) : run.error ? (
-                  <p className="whitespace-pre-wrap text-sm text-destructive">
-                    {run.error}
-                  </p>
-                ) : isRunActive ? (
-                  <p className="text-sm text-muted-foreground/70">
-                    This run is still in progress. Output will appear here when
-                    execution finishes.
-                  </p>
-                ) : (
-                  <p className="text-sm text-muted-foreground/70">
-                    No output was captured for this run.
-                  </p>
-                )}
-              </QuietPanel>
-            </>
-          )}
-        </DialogBody>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </section>
   );
 }
 
@@ -1840,79 +1701,4 @@ function truncateText(value: string, maxLength: number): string {
   }
 
   return `${value.slice(0, maxLength - 1)}…`;
-}
-
-function getScheduleTriggerRunSessionId(runId: string): string {
-  return `schedule-trigger-run:${runId}`;
-}
-
-function extractScheduleRunOutput(
-  interactions: Array<{ response?: unknown }>,
-): string | null {
-  for (const interaction of interactions) {
-    const output = extractTextFromInteractionResponse(interaction.response);
-    if (output) {
-      return output;
-    }
-  }
-
-  return null;
-}
-
-function extractTextFromInteractionResponse(response: unknown): string | null {
-  if (!response || typeof response !== "object") {
-    return null;
-  }
-
-  const candidateResponse = response as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> };
-    }>;
-    choices?: Array<{
-      message?: {
-        content?:
-          | string
-          | Array<{ type?: string; text?: string; refusal?: string }>;
-      };
-    }>;
-    content?: Array<{ type?: string; text?: string }>;
-  };
-
-  const geminiText = candidateResponse.candidates
-    ?.flatMap((candidate) => candidate.content?.parts ?? [])
-    .map((part) => part.text?.trim())
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-  if (geminiText) {
-    return geminiText;
-  }
-
-  const openAiText = candidateResponse.choices
-    ?.flatMap((choice) => {
-      const content = choice.message?.content;
-      if (typeof content === "string") {
-        return [content];
-      }
-
-      return (content ?? [])
-        .map((part) => part.text?.trim() || part.refusal?.trim())
-        .filter(Boolean);
-    })
-    .join("\n")
-    .trim();
-  if (openAiText) {
-    return openAiText;
-  }
-
-  const anthropicText = candidateResponse.content
-    ?.map((part) => part.text?.trim())
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-  if (anthropicText) {
-    return anthropicText;
-  }
-
-  return null;
 }

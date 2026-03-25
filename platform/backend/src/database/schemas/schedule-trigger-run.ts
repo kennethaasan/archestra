@@ -6,6 +6,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import conversationsTable from "./conversation";
 import type {
   ScheduleTriggerRunKind,
   ScheduleTriggerRunStatus,
@@ -29,6 +30,10 @@ const scheduleTriggerRunsTable = pgTable(
     actorUserIdSnapshot: text("actor_user_id_snapshot").notNull(),
     timezoneSnapshot: text("timezone_snapshot").notNull(),
     cronExpressionSnapshot: text("cron_expression_snapshot").notNull(),
+    chatConversationId: uuid("chat_conversation_id").references(
+      () => conversationsTable.id,
+      { onDelete: "set null" },
+    ),
     startedAt: timestamp("started_at", { mode: "date" }),
     completedAt: timestamp("completed_at", { mode: "date" }),
     error: text("error"),
@@ -43,6 +48,9 @@ const scheduleTriggerRunsTable = pgTable(
     index("schedule_trigger_runs_trigger_id_idx").on(table.triggerId),
     index("schedule_trigger_runs_status_idx").on(table.status),
     index("schedule_trigger_runs_due_at_idx").on(table.dueAt),
+    index("schedule_trigger_runs_chat_conversation_id_idx").on(
+      table.chatConversationId,
+    ),
     uniqueIndex("schedule_trigger_runs_trigger_due_at_unique_idx").on(
       table.triggerId,
       table.dueAt,

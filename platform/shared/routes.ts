@@ -19,6 +19,8 @@ export const RouteId = {
   DisableScheduleTrigger: "disableScheduleTrigger",
   RunScheduleTriggerNow: "runScheduleTriggerNow",
   GetScheduleTriggerRuns: "getScheduleTriggerRuns",
+  GetScheduleTriggerRun: "getScheduleTriggerRun",
+  CreateScheduleTriggerRunConversation: "createScheduleTriggerRunConversation",
 
   // Agent Tool Routes
   AssignToolToAgent: "assignToolToAgent",

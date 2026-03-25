@@ -402,6 +402,13 @@ export const requiredEndpointPermissionsMap: Partial<
   [RouteId.GetScheduleTriggerRuns]: {
     agentTrigger: ["read"],
   },
+  [RouteId.GetScheduleTriggerRun]: {
+    agentTrigger: ["read"],
+  },
+  [RouteId.CreateScheduleTriggerRunConversation]: {
+    agentTrigger: ["read"],
+    chat: ["create"],
+  },
   [RouteId.GetTokens]: {
     team: ["read"],
   },

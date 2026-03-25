@@ -197,3 +197,84 @@ export function getTimezonePreview(timezone: string): string | null {
     return "Timezone must be a valid IANA value such as UTC or America/New_York.";
   }
 }
+
+export function getScheduleTriggerRunSessionId(runId: string): string {
+  return `schedule-trigger-run:${runId}`;
+}
+
+export function extractScheduleRunOutput(
+  interactions: Array<{ response?: unknown }>,
+): string | null {
+  for (const interaction of interactions) {
+    const output = extractTextFromInteractionResponse(interaction.response);
+    if (output) {
+      return output;
+    }
+  }
+
+  return null;
+}
+
+function extractTextFromInteractionResponse(response: unknown): string | null {
+  if (!response || typeof response !== "object") {
+    return null;
+  }
+
+  const candidateResponse = response as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> };
+    }>;
+    choices?: Array<{
+      message?: {
+        content?:
+          | string
+          | Array<{ type?: string; text?: string; refusal?: string }>;
+      };
+    }>;
+    content?: Array<{ type?: string; text?: string }>;
+  };
+
+  const geminiText = candidateResponse.candidates
+    ?.flatMap((candidate) => candidate.content?.parts ?? [])
+    .map((part) => part.text?.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  if (geminiText) {
+    return geminiText;
+  }
+
+  const openAiText = candidateResponse.choices
+    ?.flatMap((choice) => {
+      const content = choice.message?.content;
+      if (typeof content === "string") {
+        return [content.trim()];
+      }
+
+      return (content ?? []).flatMap((part) =>
+        part.type === "text" || part.type === "output_text"
+          ? [part.text?.trim()]
+          : part.type === "refusal"
+            ? [part.refusal?.trim()]
+            : [],
+      );
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  if (openAiText) {
+    return openAiText;
+  }
+
+  const anthropicText = candidateResponse.content
+    ?.flatMap((part) =>
+      part.type === "text" || part.type === "output_text"
+        ? [part.text?.trim()]
+        : [],
+    )
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+  return anthropicText || null;
+}

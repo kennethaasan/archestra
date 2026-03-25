@@ -11,17 +11,24 @@ import db from "@/database";
 import {
   AgentModel,
   AgentTeamModel,
+  ConversationModel,
+  InteractionModel,
+  MessageModel,
   ScheduleTriggerModel,
   ScheduleTriggerRunModel,
 } from "@/models";
 import { calculateNextDueAt } from "@/schedule-triggers/utils";
+import { resolveConversationLlmSelectionForAgent } from "@/services/conversation-llm-selection";
 import { taskQueueService } from "@/task-queue";
 import {
   ApiError,
+  type ChatMessage,
   constructResponseSchema,
   DeleteObjectResponseSchema,
+  type Message,
   ScheduleTriggerConfigurationSchema,
   ScheduleTriggerConfigurationSchemaBase,
+  SelectConversationSchema,
   SelectScheduleTriggerRunSchema,
   SelectScheduleTriggerSchema,
   UuidIdSchema,
@@ -465,6 +472,65 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
       });
     },
   );
+
+  fastify.get(
+    "/api/schedule-triggers/:id/runs/:runId",
+    {
+      schema: {
+        operationId: RouteId.GetScheduleTriggerRun,
+        description: "Get a single run for a scheduled agent trigger",
+        tags: ["Schedule Triggers"],
+        params: z.object({
+          id: UuidIdSchema,
+          runId: UuidIdSchema,
+        }),
+        response: constructResponseSchema(SelectScheduleTriggerRunSchema),
+      },
+    },
+    async ({ params: { id, runId }, user, organizationId }, reply) => {
+      const run = await findAccessibleRunOrThrow({
+        triggerId: id,
+        runId,
+        userId: user.id,
+        organizationId,
+      });
+
+      return reply.send(run);
+    },
+  );
+
+  fastify.post(
+    "/api/schedule-triggers/:id/runs/:runId/conversation",
+    {
+      schema: {
+        operationId: RouteId.CreateScheduleTriggerRunConversation,
+        description:
+          "Create or return the chat conversation linked to a schedule run",
+        tags: ["Schedule Triggers"],
+        params: z.object({
+          id: UuidIdSchema,
+          runId: UuidIdSchema,
+        }),
+        response: constructResponseSchema(SelectConversationSchema),
+      },
+    },
+    async ({ params: { id, runId }, user, organizationId }, reply) => {
+      const run = await findAccessibleRunOrThrow({
+        triggerId: id,
+        runId,
+        userId: user.id,
+        organizationId,
+      });
+
+      const conversation = await ensureRunConversation({
+        run,
+        userId: user.id,
+        organizationId,
+      });
+
+      return reply.send(conversation);
+    },
+  );
 };
 
 export default scheduleTriggerRoutes;
@@ -497,3 +563,319 @@ async function findAccessibleTriggerOrThrow(params: {
 
   return trigger;
 }
+
+async function findAccessibleRunOrThrow(params: {
+  triggerId: string;
+  runId: string;
+  userId: string;
+  organizationId: string;
+}): Promise<z.infer<typeof SelectScheduleTriggerRunSchema>> {
+  await findAccessibleTriggerOrThrow({
+    id: params.triggerId,
+    userId: params.userId,
+    organizationId: params.organizationId,
+  });
+
+  const run = await ScheduleTriggerRunModel.findById(params.runId);
+  if (
+    !run ||
+    run.organizationId !== params.organizationId ||
+    run.triggerId !== params.triggerId
+  ) {
+    throw new ApiError(404, "Schedule trigger run not found");
+  }
+
+  return run;
+}
+
+async function ensureRunConversation(params: {
+  run: z.infer<typeof SelectScheduleTriggerRunSchema>;
+  userId: string;
+  organizationId: string;
+}): Promise<z.infer<typeof SelectConversationSchema>> {
+  const { run, userId, organizationId } = params;
+
+  const existingConversationId = run.chatConversationId;
+
+  const agent = await AgentModel.findById(run.agentIdSnapshot);
+  if (!agent || agent.organizationId !== organizationId) {
+    throw new ApiError(
+      400,
+      "The agent used for this run no longer exists or is unavailable",
+    );
+  }
+
+  const llmSelection = await resolveConversationLlmSelectionForAgent({
+    agent: {
+      llmApiKeyId: agent.llmApiKeyId ?? null,
+      llmModel: agent.llmModel ?? null,
+    },
+    organizationId,
+    userId,
+  });
+
+  const interactionResult = await InteractionModel.findAllPaginated(
+    { limit: 50, offset: 0 },
+    { sortBy: "createdAt", sortDirection: "desc" },
+    userId,
+    true,
+    {
+      profileId: run.agentIdSnapshot,
+      sessionId: getScheduleTriggerRunSessionId(run.id),
+    },
+  );
+  const output =
+    extractScheduleRunOutputFromInteractions(interactionResult.data) ??
+    getFallbackRunOutput(run);
+
+  const conversation = existingConversationId
+    ? ((await ConversationModel.findById({
+        id: existingConversationId,
+        userId,
+        organizationId,
+      })) ??
+      (await ConversationModel.create({
+        userId,
+        organizationId,
+        agentId: run.agentIdSnapshot,
+        selectedModel: llmSelection.selectedModel,
+        selectedProvider: llmSelection.selectedProvider,
+        chatApiKeyId: llmSelection.chatApiKeyId,
+      })))
+    : await ConversationModel.create({
+        userId,
+        organizationId,
+        agentId: run.agentIdSnapshot,
+        selectedModel: llmSelection.selectedModel,
+        selectedProvider: llmSelection.selectedProvider,
+        chatApiKeyId: llmSelection.chatApiKeyId,
+      });
+
+  const conversationMessages = await MessageModel.findByConversation(
+    conversation.id,
+  );
+
+  if (conversationMessages.length === 0) {
+    const messages = buildRunSeedMessages({
+      prompt: run.messageTemplateSnapshot,
+      output,
+    });
+    const createdAt = Date.now();
+
+    await MessageModel.bulkCreate(
+      messages.map((message, index) => ({
+        conversationId: conversation.id,
+        role: message.role,
+        content: message,
+        createdAt: new Date(createdAt + index),
+      })),
+    );
+  } else if (
+    shouldUpdateSeededRunAssistantMessage({
+      messages: conversationMessages,
+      prompt: run.messageTemplateSnapshot,
+      latestOutput: output,
+    })
+  ) {
+    await MessageModel.updateTextPart(
+      conversationMessages[1].id,
+      0,
+      output.trim(),
+    );
+  }
+
+  if (run.chatConversationId !== conversation.id) {
+    await ScheduleTriggerRunModel.setChatConversationId({
+      runId: run.id,
+      chatConversationId: conversation.id,
+    });
+  }
+
+  const refreshedConversation = await ConversationModel.findById({
+    id: conversation.id,
+    userId,
+    organizationId,
+  });
+  if (!refreshedConversation) {
+    throw new ApiError(500, "Failed to load the run conversation");
+  }
+
+  return refreshedConversation;
+}
+
+function shouldUpdateSeededRunAssistantMessage(params: {
+  messages: Message[];
+  prompt: string;
+  latestOutput: string;
+}): boolean {
+  const { messages, prompt, latestOutput } = params;
+
+  if (messages.length !== 2) {
+    return false;
+  }
+
+  const [userMessage, assistantMessage] = messages;
+  if (userMessage.role !== "user" || assistantMessage.role !== "assistant") {
+    return false;
+  }
+
+  const userText = getFirstTextPart(userMessage.content);
+  const assistantText = getFirstTextPart(assistantMessage.content);
+
+  if (!userText || !assistantText) {
+    return false;
+  }
+
+  if (userText.trim() !== prompt.trim()) {
+    return false;
+  }
+
+  if (!isRunSeedFallbackText(assistantText)) {
+    return false;
+  }
+
+  return assistantText.trim() !== latestOutput.trim();
+}
+
+function getFirstTextPart(content: unknown): string | null {
+  if (!content || typeof content !== "object") {
+    return null;
+  }
+
+  const candidate = content as {
+    parts?: Array<{ type?: string; text?: string }>;
+  };
+
+  const textPart = candidate.parts?.find((part) => part.type === "text");
+  return textPart?.text ?? null;
+}
+
+function isRunSeedFallbackText(text: string): boolean {
+  const normalized = text.trim();
+
+  return (
+    normalized === RUN_OUTPUT_PENDING_PLACEHOLDER ||
+    normalized === RUN_OUTPUT_PENDING_PLACEHOLDER_LEGACY ||
+    normalized === RUN_OUTPUT_EMPTY_PLACEHOLDER ||
+    normalized.startsWith(RUN_OUTPUT_FAILED_PREFIX)
+  );
+}
+
+function buildRunSeedMessages(params: {
+  prompt: string;
+  output: string;
+}): ChatMessage[] {
+  return [
+    {
+      role: "user",
+      parts: [{ type: "text", text: params.prompt }],
+    },
+    {
+      role: "assistant",
+      parts: [{ type: "text", text: params.output }],
+    },
+  ];
+}
+
+function getScheduleTriggerRunSessionId(runId: string): string {
+  return `schedule-trigger-run:${runId}`;
+}
+
+function getFallbackRunOutput(
+  run: z.infer<typeof SelectScheduleTriggerRunSchema>,
+): string {
+  if (run.error?.trim()) {
+    return `${RUN_OUTPUT_FAILED_PREFIX}\n\n${run.error.trim()}`;
+  }
+
+  if (run.status === "pending" || run.status === "running") {
+    return RUN_OUTPUT_PENDING_PLACEHOLDER;
+  }
+
+  return RUN_OUTPUT_EMPTY_PLACEHOLDER;
+}
+
+function extractScheduleRunOutputFromInteractions(
+  interactions: Array<{ response?: unknown }>,
+): string | null {
+  for (const interaction of interactions) {
+    const output = extractTextFromInteractionResponse(interaction.response);
+    if (output) {
+      return output;
+    }
+  }
+
+  return null;
+}
+
+function extractTextFromInteractionResponse(response: unknown): string | null {
+  if (!response || typeof response !== "object") {
+    return null;
+  }
+
+  const candidateResponse = response as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> };
+    }>;
+    choices?: Array<{
+      message?: {
+        content?:
+          | string
+          | Array<{ type?: string; text?: string; refusal?: string }>;
+      };
+    }>;
+    content?: Array<{ type?: string; text?: string }>;
+  };
+
+  const geminiText = candidateResponse.candidates
+    ?.flatMap((candidate) => candidate.content?.parts ?? [])
+    .map((part) => part.text?.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  if (geminiText) {
+    return geminiText;
+  }
+
+  const openAiText = candidateResponse.choices
+    ?.flatMap((choice) => {
+      const content = choice.message?.content;
+      if (typeof content === "string") {
+        return [content.trim()];
+      }
+
+      return (content ?? []).flatMap((part) =>
+        part.type === "text" || part.type === "output_text"
+          ? [part.text?.trim()]
+          : part.type === "refusal"
+            ? [part.refusal?.trim()]
+            : [],
+      );
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  if (openAiText) {
+    return openAiText;
+  }
+
+  const anthropicText = candidateResponse.content
+    ?.flatMap((part) =>
+      part.type === "text" || part.type === "output_text"
+        ? [part.text?.trim()]
+        : [],
+    )
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+  return anthropicText || null;
+}
+
+const RUN_OUTPUT_FAILED_PREFIX = "This scheduled run failed.";
+const RUN_OUTPUT_PENDING_PLACEHOLDER =
+  "This scheduled run is still in progress. Chat will unlock when the original run finishes.";
+const RUN_OUTPUT_PENDING_PLACEHOLDER_LEGACY =
+  "This scheduled run is still in progress. You can continue chatting while the original run finishes.";
+const RUN_OUTPUT_EMPTY_PLACEHOLDER =
+  "No output was captured for this scheduled run, but you can continue chatting from the prompt snapshot.";

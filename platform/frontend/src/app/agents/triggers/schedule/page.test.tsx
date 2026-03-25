@@ -1,6 +1,6 @@
 "use client";
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentPropsWithoutRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,14 +11,16 @@ global.ResizeObserver = class ResizeObserver {
 };
 
 const mockUseProfiles = vi.fn();
+const mockUseScheduleTrigger = vi.fn();
 const mockUseScheduleTriggers = vi.fn();
 const mockUseScheduleTriggerRuns = vi.fn();
 const mockUseInteractions = vi.fn();
 const mockSearchableSelect = vi.fn();
+const mockPush = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    push: vi.fn(),
+    push: mockPush,
   }),
 }));
 
@@ -32,7 +34,7 @@ vi.mock("@/lib/interaction.query", () => ({
 
 vi.mock("@/lib/schedule-trigger.query", () => ({
   useScheduleTriggers: (...args: unknown[]) => mockUseScheduleTriggers(...args),
-  useScheduleTrigger: vi.fn(),
+  useScheduleTrigger: (...args: unknown[]) => mockUseScheduleTrigger(...args),
   useScheduleTriggerRuns: (...args: unknown[]) =>
     mockUseScheduleTriggerRuns(...args),
   useCreateScheduleTrigger: () => ({
@@ -103,6 +105,7 @@ vi.mock("@/components/ui/cron-expression-picker", () => ({
 }));
 
 import ScheduleTriggersPage from "./page";
+import { ScheduleTriggerDetailPage } from "./schedule-triggers-client";
 
 function makeTrigger(params: {
   id: string;
@@ -157,6 +160,11 @@ describe("ScheduleTriggersPage", () => {
 
     mockUseScheduleTriggerRuns.mockReturnValue({
       data: { data: [] },
+      isLoading: false,
+    });
+
+    mockUseScheduleTrigger.mockReturnValue({
+      data: null,
       isLoading: false,
     });
 
@@ -241,5 +249,54 @@ describe("ScheduleTriggersPage", () => {
 
     expect(timezoneValues[0]).toBe(browserTimezone);
     expect(timezoneValues[1]).toBe("UTC");
+  });
+
+  it("navigates to the dedicated run page when a run row is clicked", () => {
+    const trigger = makeTrigger({
+      id: "trigger-1",
+      name: "Enabled trigger",
+      enabled: true,
+    });
+
+    mockUseScheduleTrigger.mockReturnValue({
+      data: trigger,
+      isLoading: false,
+    });
+
+    mockUseScheduleTriggerRuns.mockReturnValue({
+      data: {
+        data: [
+          {
+            id: "run-1",
+            organizationId: "org-1",
+            triggerId: trigger.id,
+            runKind: "manual",
+            status: "success",
+            dueAt: null,
+            initiatedByUserId: "user-1",
+            agentIdSnapshot: "agent-1",
+            messageTemplateSnapshot: "Run the report",
+            actorUserIdSnapshot: "user-1",
+            timezoneSnapshot: "UTC",
+            cronExpressionSnapshot: "0 9 * * 1-5",
+            chatConversationId: null,
+            startedAt: "2026-03-18T09:00:00.000Z",
+            completedAt: "2026-03-18T10:00:00.000Z",
+            error: null,
+            createdAt: "2026-03-18T09:00:00.000Z",
+            updatedAt: "2026-03-18T10:00:00.000Z",
+          },
+        ],
+      },
+      isLoading: false,
+    });
+
+    render(<ScheduleTriggerDetailPage triggerId={trigger.id} />);
+
+    fireEvent.click(screen.getByText("Open to inspect prompt snapshot and output."));
+
+    expect(mockPush).toHaveBeenCalledWith(
+      `/agents/triggers/schedule/${trigger.id}/runs/run-1`,
+    );
   });
 });

@@ -94,6 +94,19 @@ class ScheduleTriggerRunModel {
     return run ?? null;
   }
 
+  static async setChatConversationId(params: {
+    runId: string;
+    chatConversationId: string | null;
+  }): Promise<ScheduleTriggerRun | null> {
+    const [run] = await db
+      .update(schema.scheduleTriggerRunsTable)
+      .set({ chatConversationId: params.chatConversationId })
+      .where(eq(schema.scheduleTriggerRunsTable.id, params.runId))
+      .returning();
+
+    return run ?? null;
+  }
+
   static async findByIds(ids: string[]): Promise<ScheduleTriggerRun[]> {
     if (ids.length === 0) {
       return [];

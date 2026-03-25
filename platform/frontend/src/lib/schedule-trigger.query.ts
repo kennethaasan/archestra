@@ -53,6 +53,7 @@ export type ScheduleTriggerRun = {
   actorUserIdSnapshot: string;
   timezoneSnapshot: string;
   cronExpressionSnapshot: string;
+  chatConversationId: string | null;
   startedAt: string | null;
   completedAt: string | null;
   error: string | null;
@@ -84,6 +85,8 @@ export const scheduleTriggerKeys = {
     [...scheduleTriggerKeys.all, triggerId, "runs"] as const,
   runs: (triggerId: string, params: { limit?: number; offset?: number }) =>
     [...scheduleTriggerKeys.runsPrefix(triggerId), params] as const,
+  run: (triggerId: string, runId: string) =>
+    [...scheduleTriggerKeys.runsPrefix(triggerId), "detail", runId] as const,
   status: () => [...scheduleTriggerKeys.all, "status"] as const,
 };
 
@@ -193,6 +196,63 @@ export function useHasActiveScheduleTriggers() {
         PaginatedResponse<ScheduleTrigger>
       >("/api/schedule-triggers?enabled=true&limit=1&offset=0");
       return (response?.data.length ?? 0) > 0;
+    },
+  });
+}
+
+export function useScheduleTriggerRun(
+  triggerId: string | null,
+  runId: string | null,
+  params?: {
+    enabled?: boolean;
+    refetchInterval?: number | false;
+  },
+) {
+  return useQuery({
+    queryKey: scheduleTriggerKeys.run(triggerId ?? "", runId ?? ""),
+    queryFn: async () =>
+      await scheduleTriggerRequest<ScheduleTriggerRun>(
+        `/api/schedule-triggers/${triggerId}/runs/${runId}`,
+      ),
+    enabled: !!triggerId && !!runId && (params?.enabled ?? true),
+    ...(params?.refetchInterval
+      ? { refetchInterval: params.refetchInterval }
+      : {}),
+  });
+}
+
+export function useCreateScheduleTriggerRunConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      triggerId,
+      runId,
+    }: {
+      triggerId: string;
+      runId: string;
+    }) => {
+      const conversation = await scheduleTriggerRequest<{ id: string }>(
+        `/api/schedule-triggers/${triggerId}/runs/${runId}/conversation`,
+        {
+          method: "POST",
+        },
+      );
+      if (!conversation) {
+        throw new Error("Failed to create a conversation for this run");
+      }
+      return conversation;
+    },
+    onSuccess: (conversation, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: scheduleTriggerKeys.run(variables.triggerId, variables.runId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: scheduleTriggerKeys.runsPrefix(variables.triggerId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["conversation", conversation.id],
+      });
     },
   });
 }

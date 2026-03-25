@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { InteractionModel } from "@/models";
 import type { FastifyInstanceWithZod } from "@/server";
 import { createFastifyInstance } from "@/server";
 import { afterEach, beforeEach, describe, expect, test } from "@/test";
@@ -242,6 +243,115 @@ describe("schedule trigger routes", () => {
       actorUserId: user.id,
     });
     expect(updateResponse.json().nextDueAt).toBeTruthy();
+  });
+
+  test("refreshes an existing run conversation with real output once the run response exists", async ({
+    makeInternalAgent,
+  }) => {
+    const agent = await makeInternalAgent({
+      organizationId,
+      scope: "org",
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/schedule-triggers",
+      payload: {
+        name: "Output sync",
+        agentId: agent.id,
+        cronExpression: "0 12 * * *",
+        timezone: "UTC",
+        messageTemplate: "Summarize the latest run",
+      },
+    });
+    const created = createResponse.json();
+
+    const runNowResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/run-now`,
+    });
+    const run = runNowResponse.json();
+
+    const initialConversationResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/runs/${run.id}/conversation`,
+    });
+
+    expect(initialConversationResponse.statusCode).toBe(200);
+    expect(initialConversationResponse.json()).toMatchObject({
+      messages: [
+        expect.objectContaining({
+          role: "user",
+          parts: [{ type: "text", text: "Summarize the latest run" }],
+        }),
+        expect.objectContaining({
+          role: "assistant",
+          parts: [
+            {
+              type: "text",
+              text: "This scheduled run is still in progress. Chat will unlock when the original run finishes.",
+            },
+          ],
+        }),
+      ],
+    });
+
+    await InteractionModel.create({
+      profileId: agent.id,
+      userId: user.id,
+      sessionId: `schedule-trigger-run:${run.id}`,
+      source: "chat",
+      request: {
+        model: "gpt-4o",
+        messages: [{ role: "user", content: "Summarize the latest run" }],
+      },
+      response: {
+        id: "chatcmpl-run-output",
+        object: "chat.completion",
+        created: 1234567890,
+        model: "gpt-4o",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: "Final synced run output",
+            },
+            finish_reason: "stop",
+            logprobs: null,
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 10,
+          total_tokens: 20,
+        },
+      },
+      type: "openai:chatCompletions",
+      model: "gpt-4o",
+      inputTokens: 10,
+      outputTokens: 10,
+    });
+
+    const refreshedConversationResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/runs/${run.id}/conversation`,
+    });
+
+    expect(refreshedConversationResponse.statusCode).toBe(200);
+    expect(refreshedConversationResponse.json()).toMatchObject({
+      id: initialConversationResponse.json().id,
+      messages: [
+        expect.objectContaining({
+          role: "user",
+          parts: [{ type: "text", text: "Summarize the latest run" }],
+        }),
+        expect.objectContaining({
+          role: "assistant",
+          parts: [{ type: "text", text: "Final synced run output" }],
+        }),
+      ],
+    });
   });
 
   test("rejects create when the user lacks access to the selected agent", async ({
