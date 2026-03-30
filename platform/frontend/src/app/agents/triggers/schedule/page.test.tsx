@@ -1,6 +1,6 @@
 "use client";
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentPropsWithoutRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,8 +15,12 @@ const mockUseScheduleTrigger = vi.fn();
 const mockUseScheduleTriggers = vi.fn();
 const mockUseScheduleTriggerRuns = vi.fn();
 const mockUseInteractions = vi.fn();
+const mockUseHasPermissions = vi.fn();
 const mockSearchableSelect = vi.fn();
 const mockPush = vi.fn();
+const mockGenerateConversationTitle = vi.fn();
+const mockRunScheduleTriggerNow = vi.fn();
+const mockCreateScheduleTriggerRunConversation = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -26,6 +30,17 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/agent.query", () => ({
   useProfiles: (...args: unknown[]) => mockUseProfiles(...args),
+}));
+
+vi.mock("@/lib/auth/auth.query", () => ({
+  useHasPermissions: (...args: unknown[]) => mockUseHasPermissions(...args),
+}));
+
+vi.mock("@/lib/chat/chat.query", () => ({
+  useGenerateConversationTitle: () => ({
+    isPending: false,
+    mutateAsync: mockGenerateConversationTitle,
+  }),
 }));
 
 vi.mock("@/lib/interaction.query", () => ({
@@ -59,7 +74,11 @@ vi.mock("@/lib/schedule-trigger.query", () => ({
   }),
   useRunScheduleTriggerNow: () => ({
     isPending: false,
-    mutateAsync: vi.fn(),
+    mutateAsync: mockRunScheduleTriggerNow,
+  }),
+  useCreateScheduleTriggerRunConversation: () => ({
+    isPending: false,
+    mutateAsync: mockCreateScheduleTriggerRunConversation,
   }),
 }));
 
@@ -158,6 +177,10 @@ describe("ScheduleTriggersPage", () => {
       isLoading: false,
     });
 
+    mockUseHasPermissions.mockReturnValue({
+      data: true,
+    });
+
     mockUseScheduleTriggerRuns.mockReturnValue({
       data: { data: [] },
       isLoading: false,
@@ -172,6 +195,11 @@ describe("ScheduleTriggersPage", () => {
       data: { data: [] },
       isLoading: false,
     });
+
+    mockRunScheduleTriggerNow.mockReset();
+    mockCreateScheduleTriggerRunConversation.mockReset();
+    mockGenerateConversationTitle.mockReset();
+    mockGenerateConversationTitle.mockResolvedValue(null);
   });
 
   it("renders enabled triggers before paused triggers", () => {
@@ -217,9 +245,10 @@ describe("ScheduleTriggersPage", () => {
     render(<ScheduleTriggersPage />);
 
     expect(screen.queryByText("Enabled")).not.toBeInTheDocument();
+    expect(screen.queryByText("Name")).not.toBeInTheDocument();
     expect(
       screen.getByPlaceholderText(
-        "What should happen? (e.g. Review yesterday's failures and send a short summary)",
+        "Ask the scheduled agent to do something on every run...",
       ),
     ).toBeInTheDocument();
     expect(screen.getByTestId("cron-expression-picker")).toBeInTheDocument();
@@ -293,10 +322,97 @@ describe("ScheduleTriggersPage", () => {
 
     render(<ScheduleTriggerDetailPage triggerId={trigger.id} />);
 
-    fireEvent.click(screen.getByText("Open to inspect prompt snapshot and output."));
+    fireEvent.click(
+      screen.getByText("Open to inspect prompt snapshot and output."),
+    );
 
     expect(mockPush).toHaveBeenCalledWith(
       `/agents/triggers/schedule/${trigger.id}/runs/run-1`,
     );
+  });
+
+  it("navigates to chat when a run row with a chatConversationId is clicked", () => {
+    const trigger = makeTrigger({
+      id: "trigger-1",
+      name: "Enabled trigger",
+      enabled: true,
+    });
+
+    mockUseScheduleTrigger.mockReturnValue({
+      data: trigger,
+      isLoading: false,
+    });
+
+    mockUseScheduleTriggerRuns.mockReturnValue({
+      data: {
+        data: [
+          {
+            id: "run-1",
+            organizationId: "org-1",
+            triggerId: trigger.id,
+            runKind: "manual",
+            status: "success",
+            dueAt: null,
+            initiatedByUserId: "user-1",
+            agentIdSnapshot: "agent-1",
+            messageTemplateSnapshot: "Run the report",
+            actorUserIdSnapshot: "user-1",
+            timezoneSnapshot: "UTC",
+            cronExpressionSnapshot: "0 9 * * 1-5",
+            chatConversationId: "conv-123",
+            startedAt: "2026-03-18T09:00:00.000Z",
+            completedAt: "2026-03-18T10:00:00.000Z",
+            error: null,
+            createdAt: "2026-03-18T09:00:00.000Z",
+            updatedAt: "2026-03-18T10:00:00.000Z",
+          },
+        ],
+      },
+      isLoading: false,
+    });
+
+    render(<ScheduleTriggerDetailPage triggerId={trigger.id} />);
+
+    fireEvent.click(
+      screen.getByText("Open to inspect prompt snapshot and output."),
+    );
+
+    expect(mockPush).toHaveBeenCalledWith(
+      `/chat?conversation=conv-123&scheduleTriggerId=${trigger.id}&scheduleRunId=run-1`,
+    );
+  });
+
+  it("redirects run now follow-ups to chat with schedule run context", async () => {
+    const trigger = makeTrigger({
+      id: "trigger-1",
+      name: "Enabled trigger",
+      enabled: true,
+    });
+
+    mockUseScheduleTrigger.mockReturnValue({
+      data: trigger,
+      isLoading: false,
+    });
+    mockRunScheduleTriggerNow.mockResolvedValue({
+      id: "run-1",
+      triggerId: trigger.id,
+    });
+    mockCreateScheduleTriggerRunConversation.mockResolvedValue({
+      id: "conversation-1",
+    });
+    mockUseScheduleTriggerRuns.mockReturnValue({
+      data: { data: [] },
+      isLoading: false,
+    });
+
+    render(<ScheduleTriggerDetailPage triggerId={trigger.id} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith(
+        "/chat?conversation=conversation-1&scheduleTriggerId=trigger-1&scheduleRunId=run-1",
+      );
+    });
   });
 });

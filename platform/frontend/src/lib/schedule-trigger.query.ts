@@ -251,6 +251,9 @@ export function useCreateScheduleTriggerRunConversation() {
         queryKey: scheduleTriggerKeys.runsPrefix(variables.triggerId),
       });
       queryClient.invalidateQueries({
+        queryKey: ["conversations"],
+      });
+      queryClient.invalidateQueries({
         queryKey: ["conversation", conversation.id],
       });
     },

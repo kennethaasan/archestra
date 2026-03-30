@@ -5,14 +5,16 @@ import type { ColumnDef } from "@tanstack/react-table";
 import {
   AlertCircle,
   ArrowLeft,
+  Bot,
+  Clock3,
   ExternalLink,
+  FileText,
   Loader2,
   Pencil,
   Play,
   Plus,
-  Power,
-  PowerOff,
   Trash2,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,16 +22,13 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   CronExpressionPicker,
   type CronPresetOption,
 } from "@/components/ui/cron-expression-picker";
 import { DataTable } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { PermissionButton } from "@/components/ui/permission-button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
@@ -39,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -46,11 +46,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useProfiles } from "@/lib/agent.query";
+import { useHasPermissions } from "@/lib/auth/auth.query";
+import { useGenerateConversationTitle } from "@/lib/chat/chat.query";
 import {
   type ScheduleTrigger,
   type ScheduleTriggerRun,
   type ScheduleTriggerRunStatus,
   useCreateScheduleTrigger,
+  useCreateScheduleTriggerRunConversation,
   useDeleteScheduleTrigger,
   useDisableScheduleTrigger,
   useEnableScheduleTrigger,
@@ -60,7 +63,6 @@ import {
   useScheduleTriggers,
   useUpdateScheduleTrigger,
 } from "@/lib/schedule-trigger.query";
-import { cn } from "@/lib/utils";
 import { formatRelativeTimeFromNow } from "@/lib/utils/date-time";
 import { formatCronSchedule } from "@/lib/utils/format-cron";
 import {
@@ -69,7 +71,6 @@ import {
   buildTimezoneOptions,
   DEFAULT_FORM_STATE,
   deriveScheduleTriggerName,
-  getScheduleTriggerRunSessionId,
   getActiveMutationVariable,
   getRunNowTrackingState,
   type ScheduleTriggerFormState,
@@ -81,6 +82,48 @@ const SCHEDULE_PRESET_OPTIONS: CronPresetOption[] = [
   { label: "Every hour", value: "0 * * * *" },
   { label: "Every 6 hours", value: "0 */6 * * *" },
   { label: "Every Monday at 09:00", value: "0 9 * * 1" },
+];
+
+const SCHEDULE_COMPOSER_PRESETS: Array<{
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  values: Pick<ScheduleTriggerFormState, "cronExpression" | "messageTemplate">;
+}> = [
+  {
+    id: "daily-summary",
+    title: "Generate a morning summary",
+    description: "Weekdays at 09:00",
+    icon: FileText,
+    values: {
+      cronExpression: "0 9 * * 1-5",
+      messageTemplate:
+        "Review the last 24 hours of activity, highlight anything blocked or unusual, and send a concise morning summary with recommended next steps.",
+    },
+  },
+  {
+    id: "daily-check",
+    title: "Check key systems daily",
+    description: "Every day at 09:00",
+    icon: Bot,
+    values: {
+      cronExpression: "0 9 * * *",
+      messageTemplate:
+        "Inspect the latest runs, errors, and pending work across the configured systems. Summarize anything that needs follow-up and call out urgent failures first.",
+    },
+  },
+  {
+    id: "weekly-plan",
+    title: "Prepare a weekly plan",
+    description: "Every Monday at 09:00",
+    icon: Clock3,
+    values: {
+      cronExpression: "0 9 * * 1",
+      messageTemplate:
+        "Create a plan for the week based on the latest activity, unresolved issues, and recent outputs. Keep it structured, short, and action-oriented.",
+    },
+  },
 ];
 
 export function ScheduleTriggersIndexPage() {
@@ -97,11 +140,15 @@ export function ScheduleTriggersIndexPage() {
   const updateMutation = useUpdateScheduleTrigger();
   const deleteMutation = useDeleteScheduleTrigger();
   const runNowMutation = useRunScheduleTriggerNow();
+  const ensureRunConversationMutation =
+    useCreateScheduleTriggerRunConversation();
+  const generateConversationTitleMutation = useGenerateConversationTitle();
 
   const [createFormOpen, setCreateFormOpen] = useState(false);
   const [editingTrigger, setEditingTrigger] = useState<ScheduleTrigger | null>(
     null,
   );
+  const [showPresetRail, setShowPresetRail] = useState(true);
   const [formState, setFormState] =
     useState<ScheduleTriggerFormState>(DEFAULT_FORM_STATE);
   const [statusFilter, setStatusFilter] = useState<
@@ -211,6 +258,7 @@ export function ScheduleTriggersIndexPage() {
 
   const openCreateComposer = () => {
     setEditingTrigger(null);
+    setShowPresetRail(true);
     setFormState({
       ...DEFAULT_FORM_STATE(),
       agentId: preferredAgentId,
@@ -236,6 +284,17 @@ export function ScheduleTriggersIndexPage() {
     setFormState(DEFAULT_FORM_STATE());
   };
 
+  const applyComposerPreset = (
+    preset: (typeof SCHEDULE_COMPOSER_PRESETS)[number],
+  ) => {
+    setFormState((current) => ({
+      ...current,
+      cronExpression: preset.values.cronExpression,
+      messageTemplate: preset.values.messageTemplate,
+      agentId: current.agentId || preferredAgentId,
+    }));
+  };
+
   const submitForm = async () => {
     if (!formPayload) {
       return;
@@ -258,6 +317,43 @@ export function ScheduleTriggersIndexPage() {
       router.push(`/agents/triggers/schedule/${result.id}`);
     }
   };
+
+  const openRunFollowUp = useCallback(
+    async (triggerId: string) => {
+      const run = await runNowMutation.mutateAsync(triggerId);
+      if (!run) {
+        return;
+      }
+
+      try {
+        const conversation = await ensureRunConversationMutation.mutateAsync({
+          triggerId: run.triggerId,
+          runId: run.id,
+        });
+
+        void generateConversationTitleMutation
+          .mutateAsync({
+            id: conversation.id,
+            regenerate: true,
+          })
+          .catch(() => {});
+
+        router.push(
+          `/chat?conversation=${conversation.id}&scheduleTriggerId=${run.triggerId}&scheduleRunId=${run.id}`,
+        );
+      } catch {
+        router.push(
+          `/agents/triggers/schedule/${run.triggerId}/runs/${run.id}`,
+        );
+      }
+    },
+    [
+      ensureRunConversationMutation,
+      generateConversationTitleMutation,
+      router,
+      runNowMutation,
+    ],
+  );
 
   const confirmDelete = async () => {
     if (!deletingTrigger) {
@@ -383,7 +479,7 @@ export function ScheduleTriggersIndexPage() {
                     onClick={(event) => {
                       event.stopPropagation();
                       if (!isRunningNow) {
-                        void runNowMutation.mutateAsync(trigger.id);
+                        void openRunFollowUp(trigger.id);
                       }
                     }}
                   >
@@ -422,11 +518,11 @@ export function ScheduleTriggersIndexPage() {
         },
       },
     ],
-    [deleteMutation, runNowMutation, openEditComposer],
+    [deleteMutation, openEditComposer, openRunFollowUp, runNowMutation],
   );
 
   return (
-    <div className="mr-auto flex w-full max-w-[1380px] flex-col gap-8">
+    <div className="mr-auto flex w-full max-w-[1080px] flex-col gap-5">
       <WorkspaceHeader
         totalCount={allTriggers.length}
         enabledCount={enabledCount}
@@ -446,39 +542,49 @@ export function ScheduleTriggersIndexPage() {
       )}
 
       {isComposerOpen && (
-        <ScheduleTriggerFormFields
-          formState={formState}
-          effectiveName={effectiveName}
-          agentOptions={agentOptions}
-          timezoneOptions={timezoneOptions}
-          agentsLoading={agentsLoading}
-          hasAgents={hasAgents}
-          isSaving={isSaving}
-          isFormValid={formPayload !== null}
-          isEditing={editingTrigger !== null}
-          onCancel={allTriggers.length === 0 ? undefined : closeComposer}
-          onSubmit={() => {
-            void submitForm();
-          }}
-          onNameChange={(name) =>
-            setFormState((current) => ({ ...current, name }))
-          }
-          onAgentChange={(agentId) =>
-            setFormState((current) => ({ ...current, agentId }))
-          }
-          onCronExpressionChange={(cronExpression) =>
-            setFormState((current) => ({ ...current, cronExpression }))
-          }
-          onTimezoneChange={(timezone) =>
-            setFormState((current) => ({ ...current, timezone }))
-          }
-          onMessageTemplateChange={(messageTemplate) =>
-            setFormState((current) => ({ ...current, messageTemplate }))
-          }
-        />
+        <div ref={composerRef} className="space-y-3">
+          {editingTrigger === null && showPresetRail && (
+            <ScheduleComposerPresetRail
+              presets={SCHEDULE_COMPOSER_PRESETS}
+              onDismiss={() => setShowPresetRail(false)}
+              onSelectPreset={applyComposerPreset}
+            />
+          )}
+
+          <ScheduleTriggerFormFields
+            formState={formState}
+            effectiveName={effectiveName}
+            agentOptions={agentOptions}
+            timezoneOptions={timezoneOptions}
+            agentsLoading={agentsLoading}
+            hasAgents={hasAgents}
+            isSaving={isSaving}
+            isFormValid={formPayload !== null}
+            isEditing={editingTrigger !== null}
+            onCancel={allTriggers.length === 0 ? undefined : closeComposer}
+            onSubmit={() => {
+              void submitForm();
+            }}
+            onNameChange={(name) =>
+              setFormState((current) => ({ ...current, name }))
+            }
+            onAgentChange={(agentId) =>
+              setFormState((current) => ({ ...current, agentId }))
+            }
+            onCronExpressionChange={(cronExpression) =>
+              setFormState((current) => ({ ...current, cronExpression }))
+            }
+            onTimezoneChange={(timezone) =>
+              setFormState((current) => ({ ...current, timezone }))
+            }
+            onMessageTemplateChange={(messageTemplate) =>
+              setFormState((current) => ({ ...current, messageTemplate }))
+            }
+          />
+        </div>
       )}
 
-      <section className="space-y-4">
+      <section className="space-y-3">
         <FilterToolbar
           statusFilter={statusFilter}
           agentFilter={agentFilter}
@@ -494,29 +600,31 @@ export function ScheduleTriggersIndexPage() {
           }}
         />
 
-        <DataTable
-          columns={columns}
-          data={filteredTriggers}
-          isLoading={isLoading}
-          emptyMessage="No scheduled triggers yet."
-          filteredEmptyMessage="No scheduled triggers match the current filters."
-          hasActiveFilters={
-            statusFilter !== "all" ||
-            agentFilter !== "all" ||
-            nextRunFilter !== "all"
-          }
-          onClearFilters={() => {
-            setStatusFilter("all");
-            setAgentFilter("all");
-            setNextRunFilter("all");
-          }}
-          onRowClick={(trigger) =>
-            router.push(`/agents/triggers/schedule/${trigger.id}`)
-          }
-          getRowClassName={() => "group"}
-          hideSelectedCount
-          hidePaginationWhenSinglePage
-        />
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-card/95">
+          <DataTable
+            columns={columns}
+            data={filteredTriggers}
+            isLoading={isLoading}
+            emptyMessage="No scheduled triggers yet."
+            filteredEmptyMessage="No scheduled triggers match the current filters."
+            hasActiveFilters={
+              statusFilter !== "all" ||
+              agentFilter !== "all" ||
+              nextRunFilter !== "all"
+            }
+            onClearFilters={() => {
+              setStatusFilter("all");
+              setAgentFilter("all");
+              setNextRunFilter("all");
+            }}
+            onRowClick={(trigger) =>
+              router.push(`/agents/triggers/schedule/${trigger.id}`)
+            }
+            getRowClassName={() => "group"}
+            hideSelectedCount
+            hidePaginationWhenSinglePage
+          />
+        </div>
       </section>
 
       <DeleteConfirmDialog
@@ -549,6 +657,9 @@ export function ScheduleTriggerDetailPage({
   triggerId: string;
 }) {
   const router = useRouter();
+  const { data: canUpdateTrigger = false } = useHasPermissions({
+    agentTrigger: ["update"],
+  });
   const { data: trigger, isLoading } = useScheduleTrigger(triggerId, {
     refetchInterval: 5_000,
   });
@@ -560,6 +671,9 @@ export function ScheduleTriggerDetailPage({
   const enableMutation = useEnableScheduleTrigger();
   const disableMutation = useDisableScheduleTrigger();
   const runNowMutation = useRunScheduleTriggerNow();
+  const ensureRunConversationMutation =
+    useCreateScheduleTriggerRunConversation();
+  const generateConversationTitleMutation = useGenerateConversationTitle();
 
   const [editing, setEditing] = useState(false);
   const [trackedRunId, setTrackedRunId] = useState<string | null>(null);
@@ -617,11 +731,46 @@ export function ScheduleTriggerDetailPage({
     currentTriggerId: triggerId,
     trackedRunId,
   });
+  const isTogglePending = enableMutation.isPending || disableMutation.isPending;
+  const toggleScheduleEnabled = (enabled: boolean) => {
+    if (!trigger || !canUpdateTrigger) {
+      return;
+    }
+
+    if (enabled) {
+      enableMutation.mutate(trigger.id);
+      return;
+    }
+
+    disableMutation.mutate(trigger.id);
+  };
 
   const handleRunNow = async () => {
     const run = await runNowMutation.mutateAsync(triggerId);
-    if (run) {
-      setTrackedRunId(run.id);
+    if (!run) {
+      return;
+    }
+
+    setTrackedRunId(run.id);
+
+    try {
+      const conversation = await ensureRunConversationMutation.mutateAsync({
+        triggerId: run.triggerId,
+        runId: run.id,
+      });
+
+      void generateConversationTitleMutation
+        .mutateAsync({
+          id: conversation.id,
+          regenerate: true,
+        })
+        .catch(() => {});
+
+      router.push(
+        `/chat?conversation=${conversation.id}&scheduleTriggerId=${run.triggerId}&scheduleRunId=${run.id}`,
+      );
+    } catch {
+      router.push(`/agents/triggers/schedule/${run.triggerId}/runs/${run.id}`);
     }
   };
 
@@ -668,14 +817,10 @@ export function ScheduleTriggerDetailPage({
 
   if (isLoading) {
     return (
-      <Card className="border-0 bg-muted/20">
-        <CardContent className="flex h-40 items-center justify-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <span className="text-sm text-muted-foreground">
-            Loading schedule trigger...
-          </span>
-        </CardContent>
-      </Card>
+      <div className="flex h-40 items-center justify-center gap-2">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading...</span>
+      </div>
     );
   }
 
@@ -692,337 +837,318 @@ export function ScheduleTriggerDetailPage({
   }
 
   return (
-    <div className="mr-auto flex w-full max-w-[1380px] flex-col gap-8">
-      <section className="overflow-hidden rounded-xl border bg-background shadow-sm">
-        <div className="flex flex-col gap-4 border-b px-4 py-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 space-y-2">
-            <div className="flex items-center gap-3 text-sm text-muted-foreground">
-              <Button variant="ghost" size="sm" asChild className="h-8 px-2">
-                <Link href="/agents/triggers/schedule">
-                  <ArrowLeft className="mr-1 h-4 w-4" />
-                  Back
-                </Link>
-              </Button>
-              <span className="hidden sm:inline">Scheduled trigger</span>
-            </div>
+    <div className="mr-auto flex w-full max-w-[780px] flex-col gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+            className="h-8 -ml-2 px-2 text-muted-foreground"
+          >
+            <Link href="/agents/triggers/schedule">
+              <ArrowLeft className="mr-1 h-4 w-4" />
+              Schedules
+            </Link>
+          </Button>
 
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  {editing
-                    ? formState.name.trim() || effectiveName
-                    : trigger.name}
-                </h1>
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight">
+                {editing
+                  ? formState.name.trim() || effectiveName
+                  : trigger.name}
+              </h1>
+              <StatusBadge
+                label={trigger.enabled ? "Enabled" : "Disabled"}
+                tone={trigger.enabled ? "success" : "muted"}
+              />
+              {trigger.lastRunStatus && (
                 <StatusBadge
-                  label={trigger.enabled ? "Enabled" : "Disabled"}
-                  tone={trigger.enabled ? "success" : "muted"}
+                  label={trigger.lastRunStatus}
+                  tone={statusToneMap[trigger.lastRunStatus]}
                 />
-                {trigger.lastRunStatus && (
-                  <StatusBadge
-                    label={trigger.lastRunStatus}
-                    tone={statusToneMap[trigger.lastRunStatus]}
-                  />
-                )}
-              </div>
-              {editing ? (
-                <p className="max-w-2xl text-sm text-muted-foreground">
-                  Update the core trigger details directly in place.
-                </p>
-              ) : null}
+              )}
             </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {editing ? (
-              <>
-                <Button variant="ghost" size="sm" onClick={resetEditingState}>
-                  Cancel
-                </Button>
-                <PermissionButton
-                  permissions={{ agentTrigger: ["update"] }}
-                  size="sm"
-                  onClick={() => {
-                    void submitForm();
-                  }}
-                  disabled={isSaving || formPayload === null}
-                >
-                  {isSaving ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  Save changes
-                </PermissionButton>
-              </>
-            ) : (
-              <>
-                <PermissionButton
-                  permissions={{ agentTrigger: ["update"] }}
-                  variant="default"
-                  size="sm"
-                  onClick={() => {
-                    void handleRunNow();
-                  }}
-                  disabled={runNowState.isButtonSpinning}
-                >
-                  {runNowState.isButtonSpinning ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Play className="mr-2 h-4 w-4" />
-                  )}
-                  Run now
-                </PermissionButton>
-                <PermissionButton
-                  permissions={{ agentTrigger: ["update"] }}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditing(true)}
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Edit schedule
-                </PermissionButton>
-                <PermissionButton
-                  permissions={{ agentTrigger: ["update"] }}
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    trigger.enabled
-                      ? disableMutation.mutate(trigger.id)
-                      : enableMutation.mutate(trigger.id)
-                  }
-                >
-                  {trigger.enabled ? (
-                    <>
-                      <PowerOff className="mr-2 h-4 w-4" />
-                      Disable
-                    </>
-                  ) : (
-                    <>
-                      <Power className="mr-2 h-4 w-4" />
-                      Enable
-                    </>
-                  )}
-                </PermissionButton>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link
-                    href={getDocsUrl(DocsPage.PlatformAgentTriggersSchedule)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Docs
-                  </Link>
-                </Button>
-                <PermissionButton
-                  permissions={{ agentTrigger: ["delete"] }}
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive/80 hover:text-destructive"
-                  onClick={() => setDeleteDialogOpen(true)}
-                  disabled={deleteMutation.isPending}
-                >
-                  {deleteMutation.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="mr-2 h-4 w-4" />
-                  )}
-                  Delete
-                </PermissionButton>
-              </>
-            )}
+            <p className="text-sm text-muted-foreground">
+              {formatCronSchedule(trigger.cronExpression)} &middot;{" "}
+              {trigger.agent?.name ?? trigger.agentId} &middot;{" "}
+              {trigger.timezone}
+            </p>
           </div>
         </div>
 
-        <div className="grid gap-0 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-          <div className="px-4 py-4 lg:border-r">
-            <SectionHeading
-              title="Prompt"
-              description="The instruction replayed on every scheduled run."
+        {!editing && (
+          <div className="flex flex-wrap items-center gap-2">
+            <PermissionButton
+              permissions={{ agentTrigger: ["update"] }}
+              variant="default"
+              size="sm"
+              onClick={() => {
+                void handleRunNow();
+              }}
+              disabled={runNowState.isButtonSpinning}
+            >
+              {runNowState.isButtonSpinning ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-2 h-4 w-4" />
+              )}
+              Run now
+            </PermissionButton>
+            <PermissionButton
+              permissions={{ agentTrigger: ["update"] }}
+              variant="outline"
+              size="sm"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil className="mr-2 h-4 w-4" />
+              Edit
+            </PermissionButton>
+            <PermissionButton
+              permissions={{ agentTrigger: ["delete"] }}
+              variant="ghost"
+              size="sm"
+              className="text-destructive/80 hover:text-destructive"
+              onClick={() => setDeleteDialogOpen(true)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Delete
+            </PermissionButton>
+          </div>
+        )}
+      </div>
+
+      {editing ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitForm();
+          }}
+          className="flex flex-col gap-6"
+        >
+          <section className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm focus-within:ring-1 focus-within:ring-ring">
+            <Textarea
+              id="schedule-trigger-message"
+              value={formState.messageTemplate}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  messageTemplate: event.target.value,
+                }))
+              }
+              placeholder="Ask the scheduled agent to do something on every run..."
+              className="min-h-[120px] resize-y border-0 bg-transparent dark:bg-transparent px-5 py-4 text-sm shadow-none focus-visible:ring-0"
             />
-            {editing ? (
-              <div className="rounded-xl border bg-background shadow-sm focus-within:ring-1 focus-within:ring-ring">
-                <Textarea
-                  value={formState.messageTemplate}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      messageTemplate: event.target.value,
-                    }))
-                  }
-                  className="min-h-48 resize-y border-0 bg-transparent px-4 py-3 text-sm leading-6 shadow-none focus-visible:ring-0"
-                />
-              </div>
-            ) : (
-              <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+          </section>
+
+          <section className="overflow-hidden rounded-xl border border-border/60 bg-card">
+            <div className="divide-y divide-border/60">
+              <SettingsPanelRow
+                label="Name"
+                description="Display name for this trigger"
+                control={
+                  <Input
+                    id="schedule-trigger-name"
+                    value={formState.name}
+                    onChange={(event) =>
+                      setFormState((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder={effectiveName}
+                    className="h-9 w-[240px]"
+                  />
+                }
+              />
+              <SettingsPanelRow
+                label="Agent"
+                description="The agent that runs on each execution"
+                control={
+                  <SearchableSelect
+                    value={formState.agentId}
+                    onValueChange={(agentId) =>
+                      setFormState((current) => ({ ...current, agentId }))
+                    }
+                    items={agentOptions}
+                    placeholder="Select agent"
+                    searchPlaceholder="Search agents..."
+                    disabled={agentsLoading}
+                    className="h-9 w-[240px]"
+                  />
+                }
+              />
+              <SettingsPanelRow
+                label="Schedule"
+                description="How often this trigger fires"
+                control={
+                  <CronExpressionPicker
+                    value={formState.cronExpression}
+                    onChange={(cronExpression) =>
+                      setFormState((current) => ({
+                        ...current,
+                        cronExpression,
+                      }))
+                    }
+                    presets={SCHEDULE_PRESET_OPTIONS}
+                    customPlaceholder="0 9 * * 1-5"
+                    className="h-9 w-[240px]"
+                  />
+                }
+              />
+              <SettingsPanelRow
+                label="Timezone"
+                description="All schedule times use this timezone"
+                control={
+                  <SearchableSelect
+                    value={formState.timezone}
+                    onValueChange={(timezone) =>
+                      setFormState((current) => ({ ...current, timezone }))
+                    }
+                    items={timezoneOptions}
+                    placeholder="UTC"
+                    searchPlaceholder="Search timezones"
+                    className="h-9 w-[240px]"
+                  />
+                }
+              />
+            </div>
+          </section>
+
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={resetEditingState}
+            >
+              Cancel
+            </Button>
+            <PermissionButton
+              permissions={{ agentTrigger: ["update"] }}
+              type="submit"
+              size="sm"
+              disabled={isSaving || !formPayload}
+            >
+              {isSaving && (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              )}
+              Save changes
+            </PermissionButton>
+          </div>
+        </form>
+      ) : (
+        <>
+          <section className="overflow-hidden rounded-xl border border-border/60 bg-card">
+            <div className="px-5 py-4">
+              <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
                 {trigger.messageTemplate}
               </p>
-            )}
-            {trigger.lastError && (
-              <Alert className="mt-4 border-0 bg-destructive/10">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Last run failed</AlertTitle>
-                <AlertDescription>{trigger.lastError}</AlertDescription>
-              </Alert>
-            )}
-          </div>
+            </div>
+          </section>
 
-          <div className="border-t px-4 py-4 lg:border-t-0">
-            <SectionHeading
-              title="Configuration"
-              description="Core schedule settings and execution context."
-            />
-            {editing ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <EditableMetaField label="Target agent">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div>
-                        <SearchableSelect
-                          value={formState.agentId}
-                          onValueChange={(agentId) =>
-                            setFormState((current) => ({ ...current, agentId }))
-                          }
-                          items={agentOptions}
-                          placeholder="Select agent"
-                          searchPlaceholder="Search agents..."
-                          disabled={agentsLoading || agentOptions.length === 0}
-                          className="h-9"
-                        />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Target Agent</TooltipContent>
-                  </Tooltip>
-                </EditableMetaField>
-                <EditableMetaField label="Schedule (Cron)">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div>
-                        <CronExpressionPicker
-                          value={formState.cronExpression}
-                          onChange={(cronExpression) =>
-                            setFormState((current) => ({
-                              ...current,
-                              cronExpression,
-                            }))
-                          }
-                          presets={SCHEDULE_PRESET_OPTIONS}
-                          customPlaceholder="0 9 * * 1-5"
-                          descriptionFallback=""
-                          className="[&_[data-slot=select-trigger]]:h-9 [&_input]:h-9"
-                        />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Schedule (Cron)</TooltipContent>
-                  </Tooltip>
-                </EditableMetaField>
-                <EditableMetaField label="Timezone">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div>
-                        <SearchableSelect
-                          value={formState.timezone}
-                          onValueChange={(timezone) =>
-                            setFormState((current) => ({
-                              ...current,
-                              timezone,
-                            }))
-                          }
-                          items={timezoneOptions}
-                          placeholder="UTC"
-                          searchPlaceholder="Search timezones"
-                          className="h-9"
-                        />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Timezone</TooltipContent>
-                  </Tooltip>
-                </EditableMetaField>
-                <EditableMetaField label="Trigger name">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Input
-                        value={formState.name}
-                        onChange={(event) =>
-                          setFormState((current) => ({
-                            ...current,
-                            name: event.target.value,
-                          }))
-                        }
-                        placeholder={effectiveName}
-                        className="h-9"
+          {trigger.lastError && (
+            <Alert className="border-0 bg-destructive/10">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Last run failed</AlertTitle>
+              <AlertDescription>{trigger.lastError}</AlertDescription>
+            </Alert>
+          )}
+
+          <section className="overflow-hidden rounded-xl border border-border/60 bg-card">
+            <div className="divide-y divide-border/60">
+              <SettingsPanelRow
+                label="Name"
+                description="Display name for this trigger"
+                control={<ReadonlySettingValue value={trigger.name} />}
+              />
+              <SettingsPanelRow
+                label="Agent"
+                description="The agent that runs on each execution"
+                control={
+                  <ReadonlySettingValue
+                    value={trigger.agent?.name ?? trigger.agentId}
+                  />
+                }
+              />
+              <SettingsPanelRow
+                label="Schedule"
+                description="How often this trigger fires"
+                control={
+                  <ReadonlySettingValue
+                    value={formatCronSchedule(trigger.cronExpression)}
+                  />
+                }
+              />
+              <SettingsPanelRow
+                label="Timezone"
+                description="All schedule times use this timezone"
+                control={<ReadonlySettingValue value={trigger.timezone} />}
+              />
+              <SettingsPanelRow
+                label="Enabled"
+                description="Pause or resume scheduled runs"
+                control={
+                  <Switch
+                    checked={trigger.enabled}
+                    onCheckedChange={toggleScheduleEnabled}
+                    disabled={isTogglePending || !canUpdateTrigger}
+                    aria-label="Toggle schedule enabled"
+                  />
+                }
+              />
+              <SettingsPanelRow
+                label="Next due"
+                description="When the next run is scheduled"
+                control={
+                  <span className="text-sm text-foreground">
+                    {formatTimestampWithRelative(
+                      trigger.nextDueAt,
+                      "Not scheduled",
+                    )}
+                  </span>
+                }
+              />
+              <SettingsPanelRow
+                label="Last run"
+                description="Most recent execution result"
+                control={
+                  <div className="flex items-center gap-2">
+                    {trigger.lastRunStatus && (
+                      <StatusBadge
+                        label={trigger.lastRunStatus}
+                        tone={statusToneMap[trigger.lastRunStatus]}
                       />
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Trigger Name</TooltipContent>
-                  </Tooltip>
-                </EditableMetaField>
-                <InlineMeta
-                  label="Next due"
-                  value={formatTimestampWithRelative(
-                    trigger.nextDueAt,
-                    "Not scheduled",
-                  )}
-                />
-                <InlineMeta
-                  label="Execution actor"
-                  value={
-                    trigger.actor?.name ||
-                    trigger.actor?.email ||
-                    trigger.actorUserId
-                  }
-                />
-                <InlineMeta
-                  label="Last completed"
-                  value={formatTimestampWithRelative(trigger.lastRunAt)}
-                />
-                <InlineMeta
-                  label="Trigger mode"
-                  value="Persisted cron schedule"
-                />
-                <InlineMeta
-                  label="Permissions"
-                  value="Runs with the trigger creator's agent access"
-                />
-              </div>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <InlineMeta
-                  label="Target agent"
-                  value={trigger.agent?.name ?? trigger.agentId}
-                />
-                <InlineMeta
-                  label="Schedule (Cron)"
-                  value={formatCronSchedule(trigger.cronExpression)}
-                />
-                <InlineMeta label="Timezone" value={trigger.timezone} />
-                <InlineMeta
-                  label="Next due"
-                  value={formatTimestampWithRelative(
-                    trigger.nextDueAt,
-                    "Not scheduled",
-                  )}
-                />
-                <InlineMeta
-                  label="Execution actor"
-                  value={
-                    trigger.actor?.name ||
-                    trigger.actor?.email ||
-                    trigger.actorUserId
-                  }
-                />
-                <InlineMeta
-                  label="Last completed"
-                  value={formatTimestampWithRelative(trigger.lastRunAt)}
-                />
-                <InlineMeta
-                  label="Trigger mode"
-                  value="Persisted cron schedule"
-                />
-                <InlineMeta
-                  label="Permissions"
-                  value="Runs with the trigger creator's agent access"
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+                    )}
+                    <span className="text-sm text-muted-foreground">
+                      {trigger.lastRunAt
+                        ? formatRelativeTimeFromNow(trigger.lastRunAt)
+                        : "No runs yet"}
+                    </span>
+                  </div>
+                }
+              />
+              <SettingsPanelRow
+                label="Created by"
+                description="Who originally created this trigger"
+                control={
+                  <span className="text-sm text-foreground">
+                    {trigger.actor?.name ||
+                      trigger.actor?.email ||
+                      trigger.actorUserId}
+                  </span>
+                }
+              />
+            </div>
+          </section>
+        </>
+      )}
 
       <DeleteConfirmDialog
         open={deleteDialogOpen}
@@ -1061,187 +1187,99 @@ function WorkspaceHeader({
   onCreate: () => void;
 }) {
   return (
-    <section className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-1">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold tracking-tight">
             Scheduled triggers
-          </h1>
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground/70">
-            Compose schedules, inspect recent runs, and jump straight into the
-            trigger that needs attention.
-          </p>
+          </h2>
+          {totalCount > 0 && (
+            <span className="text-sm text-muted-foreground">
+              {enabledCount} of {totalCount} active
+            </span>
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <Badge
-            variant="outline"
-            className="border-border/60 bg-muted/30 px-2.5 py-1 text-foreground/80"
-          >
-            {enabledCount} enabled
-          </Badge>
-          <Badge
-            variant="outline"
-            className="border-border/60 bg-muted/20 px-2.5 py-1 text-muted-foreground/80"
-          >
-            {totalCount} total
-          </Badge>
-          <span className="ml-1 text-sm text-muted-foreground/60">
-            Open any trigger for run history, output, and control actions.
-          </span>
+        <p className="text-sm text-muted-foreground">
+          Run an agent on a cadence. Manual runs open in chat for follow-up.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" asChild>
           <Link
             href={getDocsUrl(DocsPage.PlatformAgentTriggersSchedule)}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground/70 transition-colors hover:text-foreground"
           >
             Docs
-            <ExternalLink className="h-3.5 w-3.5" />
+            <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
           </Link>
-        </div>
-      </div>
-
-      <ScheduleTriggerCreateButton hasAgents={hasAgents} onClick={onCreate}>
-        New schedule
-      </ScheduleTriggerCreateButton>
-    </section>
-  );
-}
-
-function QuietPanel({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-3">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/60">
-        {title}
-      </p>
-      <div className="rounded-[28px] bg-muted/20 p-6">{children}</div>
-    </section>
-  );
-}
-
-function SectionHeading({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="mb-4">
-      <p className="text-xs font-medium text-foreground">{title}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-    </div>
-  );
-}
-
-function ScheduleTriggerCreateButton({
-  hasAgents,
-  onClick,
-  children,
-}: {
-  hasAgents: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <PermissionButton
-      permissions={{ agentTrigger: ["create"] }}
-      onClick={onClick}
-      disabled={!hasAgents}
-      tooltip={
-        hasAgents
-          ? undefined
-          : "You need access to at least one internal agent to create a schedule."
-      }
-    >
-      <Plus className="mr-2 h-4 w-4" />
-      {children}
-    </PermissionButton>
-  );
-}
-
-function FilterToolbar({
-  statusFilter,
-  agentFilter,
-  nextRunFilter,
-  agentOptions,
-  onStatusFilterChange,
-  onAgentFilterChange,
-  onNextRunFilterChange,
-  onReset,
-}: {
-  statusFilter: "all" | "enabled" | "disabled";
-  agentFilter: string;
-  nextRunFilter: "all" | "today" | "later" | "none";
-  agentOptions: AgentOption[];
-  onStatusFilterChange: (value: "all" | "enabled" | "disabled") => void;
-  onAgentFilterChange: (value: string) => void;
-  onNextRunFilterChange: (value: "all" | "today" | "later" | "none") => void;
-  onReset: () => void;
-}) {
-  const hasActiveFilters =
-    statusFilter !== "all" || agentFilter !== "all" || nextRunFilter !== "all";
-
-  return (
-    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-        <QuietSelectField label="Status">
-          <Select value={statusFilter} onValueChange={onStatusFilterChange}>
-            <SelectTrigger className="w-[150px] border-transparent bg-muted/30 shadow-none">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="enabled">Enabled</SelectItem>
-              <SelectItem value="disabled">Disabled</SelectItem>
-            </SelectContent>
-          </Select>
-        </QuietSelectField>
-
-        <QuietSelectField label="Agent">
-          <SearchableSelect
-            value={agentFilter}
-            onValueChange={onAgentFilterChange}
-            items={[
-              { value: "all", label: "All agents", description: "No filter" },
-              ...agentOptions,
-            ]}
-            placeholder="All agents"
-            searchPlaceholder="Search agents..."
-            className="w-[240px] border-transparent bg-muted/30"
-          />
-        </QuietSelectField>
-
-        <QuietSelectField label="Next run">
-          <Select value={nextRunFilter} onValueChange={onNextRunFilterChange}>
-            <SelectTrigger className="w-[170px] border-transparent bg-muted/30 shadow-none">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Any time</SelectItem>
-              <SelectItem value="today">Within 24h</SelectItem>
-              <SelectItem value="later">After 24h</SelectItem>
-              <SelectItem value="none">No next run</SelectItem>
-            </SelectContent>
-          </Select>
-        </QuietSelectField>
-      </div>
-
-      {hasActiveFilters && (
-        <Button variant="ghost" onClick={onReset} className="self-start">
-          Clear filters
         </Button>
-      )}
+        <ScheduleTriggerCreateButton hasAgents={hasAgents} onClick={onCreate}>
+          New schedule
+        </ScheduleTriggerCreateButton>
+      </div>
     </div>
   );
 }
 
-function QuietSelectField({
+function ScheduleComposerPresetRail({
+  presets,
+  onDismiss,
+  onSelectPreset,
+}: {
+  presets: typeof SCHEDULE_COMPOSER_PRESETS;
+  onDismiss: () => void;
+  onSelectPreset: (preset: (typeof SCHEDULE_COMPOSER_PRESETS)[number]) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Start from a template, or write your own below.
+        </p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="rounded-full text-muted-foreground/70"
+          onClick={onDismiss}
+        >
+          <X className="h-3.5 w-3.5" />
+          <span className="sr-only">Hide presets</span>
+        </Button>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        {presets.map((preset) => {
+          const Icon = preset.icon;
+
+          return (
+            <button
+              type="button"
+              key={preset.id}
+              onClick={() => onSelectPreset(preset)}
+              className="group flex items-start gap-3 rounded-xl border border-border/60 bg-card px-4 py-3.5 text-left transition-colors hover:bg-accent/10"
+            >
+              <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/50 text-muted-foreground transition-colors group-hover:text-foreground">
+                <Icon className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">
+                  {preset.title}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {preset.description}
+                </p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ComposerToolbarField({
   label,
   children,
 }: {
@@ -1250,325 +1288,38 @@ function QuietSelectField({
 }) {
   return (
     <div className="grid gap-1.5">
-      <Label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/60">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/60">
         {label}
-      </Label>
+      </p>
       {children}
     </div>
   );
 }
 
-function ScheduleTriggerFormFields({
-  formState,
-  effectiveName,
-  agentOptions,
-  timezoneOptions,
-  agentsLoading,
-  hasAgents,
-  isSaving,
-  isFormValid,
-  isEditing,
-  chrome = "standalone",
-  onCancel,
-  onSubmit,
-  onNameChange,
-  onAgentChange,
-  onCronExpressionChange,
-  onTimezoneChange,
-  onMessageTemplateChange,
-}: {
-  formState: ScheduleTriggerFormState;
-  effectiveName: string;
-  agentOptions: AgentOption[];
-  timezoneOptions: AgentOption[];
-  agentsLoading: boolean;
-  hasAgents: boolean;
-  isSaving: boolean;
-  isFormValid: boolean;
-  isEditing: boolean;
-  chrome?: "standalone" | "embedded";
-  onCancel?: () => void;
-  onSubmit: () => void;
-  onNameChange: (value: string) => void;
-  onAgentChange: (value: string) => void;
-  onCronExpressionChange: (value: string) => void;
-  onTimezoneChange: (value: string) => void;
-  onMessageTemplateChange: (value: string) => void;
-}) {
-  const isCreateMode = !isEditing;
-
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
-      className={cn(
-        "focus-within:ring-1 focus-within:ring-ring",
-        chrome === "standalone"
-          ? "rounded-xl border bg-background shadow-sm"
-          : "rounded-none border-0 bg-transparent shadow-none",
-      )}
-    >
-      <div className="relative">
-        <Textarea
-          id="schedule-trigger-message"
-          value={formState.messageTemplate}
-          onChange={(event) => onMessageTemplateChange(event.target.value)}
-          placeholder={
-            isCreateMode
-              ? "What should happen? (e.g. Review yesterday's failures and send a short summary)"
-              : "Prompt"
-          }
-          className="min-h-[80px] resize-y border-0 bg-transparent px-4 py-3 text-sm shadow-none focus-visible:ring-0"
-        />
-      </div>
-
-      <div className="flex flex-col gap-3 border-t bg-muted/10 px-3 py-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-wrap items-start gap-2 flex-1">
-            <div className="w-[180px]">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <SearchableSelect
-                      value={formState.agentId}
-                      onValueChange={onAgentChange}
-                      items={agentOptions}
-                      placeholder="Select agent"
-                      searchPlaceholder="Search agents..."
-                      disabled={agentsLoading || !hasAgents}
-                      className="h-9 w-full"
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top">Target Agent</TooltipContent>
-              </Tooltip>
-            </div>
-
-            <div className="w-[200px] [&_[data-slot=select-trigger]]:h-9 [&_input]:h-9">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <CronExpressionPicker
-                      value={formState.cronExpression}
-                      onChange={onCronExpressionChange}
-                      presets={SCHEDULE_PRESET_OPTIONS}
-                      customPlaceholder="0 9 * * 1-5"
-                      descriptionFallback=""
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top">Schedule (Cron)</TooltipContent>
-              </Tooltip>
-            </div>
-
-            <div className="w-[160px]">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Input
-                    id="schedule-trigger-name"
-                    value={formState.name}
-                    onChange={(event) => onNameChange(event.target.value)}
-                    placeholder={effectiveName}
-                    className="h-9 w-full"
-                  />
-                </TooltipTrigger>
-                <TooltipContent side="top">Trigger Name</TooltipContent>
-              </Tooltip>
-            </div>
-
-            <div className="w-[160px]">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <SearchableSelect
-                      value={formState.timezone}
-                      onValueChange={onTimezoneChange}
-                      items={timezoneOptions}
-                      placeholder="UTC"
-                      searchPlaceholder="Search timezones"
-                      className="h-9 w-full"
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top">Timezone</TooltipContent>
-              </Tooltip>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2 pt-0.5 shrink-0">
-            {onCancel && isEditing && (
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                onClick={onCancel}
-              >
-                Cancel
-              </Button>
-            )}
-            <PermissionButton
-              permissions={{
-                agentTrigger: [isEditing ? "update" : "create"],
-              }}
-              type="submit"
-              size="sm"
-              disabled={isSaving || !isFormValid}
-            >
-              {isSaving && (
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              )}
-              {isEditing ? "Save changes" : "Create schedule"}
-            </PermissionButton>
-          </div>
-        </div>
-      </div>
-    </form>
-  );
-}
-
-function ScheduleTriggerRunsTable({
-  trigger,
-  trackedRunId,
-  activeMutationTriggerId,
-  onTrackedRunSettled,
-}: {
-  trigger: ScheduleTrigger;
-  trackedRunId: string | null;
-  activeMutationTriggerId: string | null;
-  onTrackedRunSettled: (runId: string) => void;
-}) {
-  const router = useRouter();
-  const { data: runsResponse, isLoading: runsLoading } = useScheduleTriggerRuns(
-    trigger.id,
-    {
-      limit: 20,
-      offset: 0,
-      enabled: true,
-      refetchInterval: trackedRunId ? 3_000 : false,
-    },
-  );
-
-  const trackedRun =
-    trackedRunId === null
-      ? null
-      : (runsResponse?.data.find((run) => run.id === trackedRunId) ?? null);
-  const runNowState = getRunNowTrackingState({
-    activeMutationTriggerId,
-    currentTriggerId: trigger.id,
-    trackedRunId,
-    trackedRunStatus: trackedRun?.status,
-  });
-
-  useEffect(() => {
-    if (!runNowState.shouldClearTrackedRun || !trackedRunId) {
-      return;
-    }
-
-    onTrackedRunSettled(trackedRunId);
-  }, [onTrackedRunSettled, runNowState.shouldClearTrackedRun, trackedRunId]);
-
-  const columns = useMemo<ColumnDef<ScheduleTriggerRun>[]>(
-    () => [
-      {
-        id: "run",
-        header: "Run",
-        cell: ({ row }) => (
-          <div className="space-y-1 py-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge
-                label={row.original.status}
-                tone={statusToneMap[row.original.status]}
-              />
-              <span className="text-xs uppercase tracking-[0.14em] text-muted-foreground/60">
-                {row.original.runKind}
-              </span>
-            </div>
-            <p className="text-sm text-muted-foreground/70">
-              {row.original.error
-                ? truncateText(row.original.error, 120)
-                : "Open to inspect prompt snapshot and output."}
-            </p>
-          </div>
-        ),
-      },
-      {
-        id: "queued",
-        header: "Queued",
-        cell: ({ row }) => <TimestampCell value={row.original.createdAt} />,
-      },
-      {
-        id: "completed",
-        header: "Completed",
-        cell: ({ row }) => (
-          <TimestampCell
-            value={row.original.completedAt}
-            emptyLabel="In progress"
-          />
-        ),
-      },
-    ],
-    [],
-  );
-
-  return (
-    <section className="space-y-4">
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-sm font-medium text-foreground">Run history</h2>
-          <p className="text-sm text-muted-foreground/70">
-            Open a run to inspect the captured output and continue in chat.
-          </p>
-        </div>
-        {runNowState.isButtonSpinning && (
-          <span className="text-xs text-muted-foreground/60">
-            Refreshing active run
-          </span>
-        )}
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={runsResponse?.data ?? []}
-        isLoading={runsLoading}
-        emptyMessage="No runs recorded yet."
-        onRowClick={(run) =>
-          router.push(`/agents/triggers/schedule/${trigger.id}/runs/${run.id}`)
-        }
-        hideSelectedCount
-        hidePaginationWhenSinglePage
-      />
-    </section>
-  );
-}
-
-function InlineMeta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/60">
-        {label}
-      </p>
-      <p className="text-sm text-foreground">{value}</p>
-    </div>
-  );
-}
-
-function EditableMetaField({
+function SettingsPanelRow({
   label,
-  children,
+  description,
+  control,
 }: {
   label: string;
-  children: React.ReactNode;
+  description?: string;
+  control: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/60">
-        {label}
-      </p>
-      {children}
+    <div className="flex items-center justify-between gap-6 px-5 py-4">
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        {description && (
+          <p className="text-[13px] text-muted-foreground">{description}</p>
+        )}
+      </div>
+      <div className="shrink-0">{control}</div>
     </div>
   );
+}
+
+function ReadonlySettingValue({ value }: { value: string }) {
+  return <span className="text-sm text-foreground">{value}</span>;
 }
 
 function TimestampCell({
@@ -1701,4 +1452,389 @@ function truncateText(value: string, maxLength: number): string {
   }
 
   return `${value.slice(0, maxLength - 1)}…`;
+}
+
+function ScheduleTriggerCreateButton({
+  hasAgents,
+  onClick,
+  children,
+}: {
+  hasAgents: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <PermissionButton
+      permissions={{ agentTrigger: ["create"] }}
+      onClick={onClick}
+      disabled={!hasAgents}
+      tooltip={
+        hasAgents
+          ? undefined
+          : "You need access to at least one internal agent to create a schedule."
+      }
+    >
+      <Plus className="mr-2 h-4 w-4" />
+      {children}
+    </PermissionButton>
+  );
+}
+
+function FilterToolbar({
+  statusFilter,
+  agentFilter,
+  nextRunFilter,
+  agentOptions,
+  onStatusFilterChange,
+  onAgentFilterChange,
+  onNextRunFilterChange,
+  onReset,
+}: {
+  statusFilter: "all" | "enabled" | "disabled";
+  agentFilter: string;
+  nextRunFilter: "all" | "today" | "later" | "none";
+  agentOptions: AgentOption[];
+  onStatusFilterChange: (value: "all" | "enabled" | "disabled") => void;
+  onAgentFilterChange: (value: string) => void;
+  onNextRunFilterChange: (value: "all" | "today" | "later" | "none") => void;
+  onReset: () => void;
+}) {
+  const hasActiveFilters =
+    statusFilter !== "all" || agentFilter !== "all" || nextRunFilter !== "all";
+
+  return (
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <ComposerToolbarField label="Status">
+          <Select value={statusFilter} onValueChange={onStatusFilterChange}>
+            <SelectTrigger className="w-[150px] border-transparent bg-muted/30 shadow-none">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="enabled">Enabled</SelectItem>
+              <SelectItem value="disabled">Disabled</SelectItem>
+            </SelectContent>
+          </Select>
+        </ComposerToolbarField>
+
+        <ComposerToolbarField label="Agent">
+          <SearchableSelect
+            value={agentFilter}
+            onValueChange={onAgentFilterChange}
+            items={[
+              { value: "all", label: "All agents", description: "No filter" },
+              ...agentOptions,
+            ]}
+            placeholder="All agents"
+            searchPlaceholder="Search agents..."
+            className="w-[240px] border-transparent bg-muted/30"
+          />
+        </ComposerToolbarField>
+
+        <ComposerToolbarField label="Next run">
+          <Select value={nextRunFilter} onValueChange={onNextRunFilterChange}>
+            <SelectTrigger className="w-[170px] border-transparent bg-muted/30 shadow-none">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any time</SelectItem>
+              <SelectItem value="today">Within 24h</SelectItem>
+              <SelectItem value="later">After 24h</SelectItem>
+              <SelectItem value="none">No next run</SelectItem>
+            </SelectContent>
+          </Select>
+        </ComposerToolbarField>
+      </div>
+
+      {hasActiveFilters && (
+        <Button variant="ghost" onClick={onReset} className="self-start">
+          Clear filters
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ScheduleTriggerFormFields({
+  formState,
+  effectiveName,
+  agentOptions,
+  timezoneOptions,
+  agentsLoading,
+  hasAgents,
+  isSaving,
+  isFormValid,
+  isEditing,
+  onCancel,
+  onSubmit,
+  onNameChange,
+  onAgentChange,
+  onCronExpressionChange,
+  onTimezoneChange,
+  onMessageTemplateChange,
+}: {
+  formState: ScheduleTriggerFormState;
+  effectiveName: string;
+  agentOptions: AgentOption[];
+  timezoneOptions: AgentOption[];
+  agentsLoading: boolean;
+  hasAgents: boolean;
+  isSaving: boolean;
+  isFormValid: boolean;
+  isEditing: boolean;
+  onCancel?: () => void;
+  onSubmit: () => void;
+  onNameChange: (value: string) => void;
+  onAgentChange: (value: string) => void;
+  onCronExpressionChange: (value: string) => void;
+  onTimezoneChange: (value: string) => void;
+  onMessageTemplateChange: (value: string) => void;
+}) {
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+      className="rounded-xl border border-border/60 bg-card shadow-sm focus-within:ring-1 focus-within:ring-ring"
+    >
+      <div className="relative">
+        <Textarea
+          id="schedule-trigger-message"
+          value={formState.messageTemplate}
+          onChange={(event) => onMessageTemplateChange(event.target.value)}
+          placeholder="Ask the scheduled agent to do something on every run..."
+          className="min-h-[80px] resize-y border-0 bg-transparent dark:bg-transparent px-4 py-3 text-sm shadow-none focus-visible:ring-0"
+        />
+      </div>
+
+      <div className="flex flex-col gap-3 px-3 py-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-1 flex-wrap items-start gap-2">
+            <div className="w-[180px]">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <SearchableSelect
+                      value={formState.agentId}
+                      onValueChange={onAgentChange}
+                      items={agentOptions}
+                      placeholder="Select agent"
+                      searchPlaceholder="Search agents..."
+                      disabled={agentsLoading || !hasAgents}
+                      className="h-9 w-full"
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top">Target Agent</TooltipContent>
+              </Tooltip>
+            </div>
+
+            <div className="w-[200px]">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <CronExpressionPicker
+                      value={formState.cronExpression}
+                      onChange={onCronExpressionChange}
+                      presets={SCHEDULE_PRESET_OPTIONS}
+                      customPlaceholder="0 9 * * 1-5"
+                      className="h-9 w-full"
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top">Schedule (Cron)</TooltipContent>
+              </Tooltip>
+            </div>
+
+            {isEditing && (
+              <div className="w-[160px]">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Input
+                      id="schedule-trigger-name"
+                      value={formState.name}
+                      onChange={(event) => onNameChange(event.target.value)}
+                      placeholder={effectiveName}
+                      className="h-9 w-full"
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Trigger Name</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
+
+            <div className="w-[160px]">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <SearchableSelect
+                      value={formState.timezone}
+                      onValueChange={onTimezoneChange}
+                      items={timezoneOptions}
+                      placeholder="UTC"
+                      searchPlaceholder="Search timezones"
+                      className="h-9 w-full"
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top">Timezone</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-start gap-2 pt-0.5">
+            {onCancel && (
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+            )}
+            <PermissionButton
+              permissions={{
+                agentTrigger: [isEditing ? "update" : "create"],
+              }}
+              type="submit"
+              size="sm"
+              disabled={isSaving || !isFormValid}
+            >
+              {isSaving && (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              )}
+              {isEditing ? "Save changes" : "Create schedule"}
+            </PermissionButton>
+          </div>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function ScheduleTriggerRunsTable({
+  trigger,
+  trackedRunId,
+  activeMutationTriggerId,
+  onTrackedRunSettled,
+}: {
+  trigger: ScheduleTrigger;
+  trackedRunId: string | null;
+  activeMutationTriggerId: string | null;
+  onTrackedRunSettled: (runId: string) => void;
+}) {
+  const router = useRouter();
+  const { data: runsResponse, isLoading: runsLoading } = useScheduleTriggerRuns(
+    trigger.id,
+    {
+      limit: 20,
+      offset: 0,
+      enabled: true,
+      refetchInterval: trackedRunId ? 3_000 : false,
+    },
+  );
+
+  const trackedRun =
+    trackedRunId === null
+      ? null
+      : (runsResponse?.data.find((run) => run.id === trackedRunId) ?? null);
+  const runNowState = getRunNowTrackingState({
+    activeMutationTriggerId,
+    currentTriggerId: trigger.id,
+    trackedRunId,
+    trackedRunStatus: trackedRun?.status,
+  });
+
+  useEffect(() => {
+    if (!runNowState.shouldClearTrackedRun || !trackedRunId) {
+      return;
+    }
+
+    onTrackedRunSettled(trackedRunId);
+  }, [onTrackedRunSettled, runNowState.shouldClearTrackedRun, trackedRunId]);
+
+  const columns = useMemo<ColumnDef<ScheduleTriggerRun>[]>(
+    () => [
+      {
+        id: "run",
+        header: "Run",
+        cell: ({ row }) => (
+          <div className="space-y-1 py-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge
+                label={row.original.status}
+                tone={statusToneMap[row.original.status]}
+              />
+              <span className="text-xs uppercase tracking-[0.14em] text-muted-foreground/60">
+                {row.original.runKind}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground/70">
+              {row.original.error
+                ? truncateText(row.original.error, 120)
+                : "Open to inspect prompt snapshot and output."}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: "queued",
+        header: "Queued",
+        cell: ({ row }) => <TimestampCell value={row.original.createdAt} />,
+      },
+      {
+        id: "completed",
+        header: "Completed",
+        cell: ({ row }) => (
+          <TimestampCell
+            value={row.original.completedAt}
+            emptyLabel="In progress"
+          />
+        ),
+      },
+    ],
+    [],
+  );
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-sm font-medium text-foreground">Run history</h2>
+          <p className="text-sm text-muted-foreground/70">
+            The primary surface for this trigger. Open a row to continue in
+            chat.
+          </p>
+        </div>
+        {runNowState.isButtonSpinning && (
+          <span className="text-xs text-muted-foreground/60">
+            Refreshing active run
+          </span>
+        )}
+      </div>
+
+      <DataTable
+        columns={columns}
+        data={runsResponse?.data ?? []}
+        isLoading={runsLoading}
+        emptyMessage="No runs recorded yet."
+        onRowClick={(run) => {
+          if (run.chatConversationId) {
+            router.push(
+              `/chat?conversation=${run.chatConversationId}&scheduleTriggerId=${trigger.id}&scheduleRunId=${run.id}`,
+            );
+          } else {
+            router.push(
+              `/agents/triggers/schedule/${trigger.id}/runs/${run.id}`,
+            );
+          }
+        }}
+        hideSelectedCount
+        hidePaginationWhenSinglePage
+      />
+    </section>
+  );
 }

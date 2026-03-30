@@ -282,7 +282,7 @@ describe("ScheduleTriggerRunPage", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("Waiting for the scheduled run to finish"),
+        screen.getByText("Waiting for run to finish..."),
       ).toBeInTheDocument(),
     );
     expect(screen.queryByTestId("prompt-input")).not.toBeInTheDocument();

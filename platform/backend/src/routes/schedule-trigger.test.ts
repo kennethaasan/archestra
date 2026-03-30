@@ -279,6 +279,7 @@ describe("schedule trigger routes", () => {
 
     expect(initialConversationResponse.statusCode).toBe(200);
     expect(initialConversationResponse.json()).toMatchObject({
+      title: "Summarize the latest run",
       messages: [
         expect.objectContaining({
           role: "user",
@@ -341,6 +342,7 @@ describe("schedule trigger routes", () => {
     expect(refreshedConversationResponse.statusCode).toBe(200);
     expect(refreshedConversationResponse.json()).toMatchObject({
       id: initialConversationResponse.json().id,
+      title: "Summarize the latest run",
       messages: [
         expect.objectContaining({
           role: "user",

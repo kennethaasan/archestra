@@ -4,6 +4,7 @@ import type { UIMessage } from "@ai-sdk/react";
 import type { SupportedProvider } from "@shared";
 import {
   ArrowLeft,
+  ChevronDown,
   ExternalLink,
   Loader2,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
 } from "react";
 import type { FormEvent } from "react";
 import { ChatMessages } from "@/components/chat/chat-messages";
+import { LoadingSpinner } from "@/components/loading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useInternalAgents } from "@/lib/agent.query";
@@ -40,6 +42,7 @@ import {
 } from "@/lib/schedule-trigger.query";
 import { cn } from "@/lib/utils";
 import { formatRelativeTimeFromNow } from "@/lib/utils/date-time";
+import { formatCronSchedule } from "@/lib/utils/format-cron";
 import ArchestraPromptInput from "@/app/chat/prompt-input";
 import {
   getScheduleTriggerRunSessionId,
@@ -83,6 +86,7 @@ export function ScheduleTriggerRunPage({
     useState<string | null>(null);
   const [conversationBootstrapError, setConversationBootstrapError] =
     useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
 
   const { data: trigger, isLoading: triggerLoading } = useScheduleTrigger(
     triggerId,
@@ -413,42 +417,39 @@ export function ScheduleTriggerRunPage({
     );
   }
 
-  return (
-    <div className="mr-auto flex w-full max-w-[1480px] flex-col gap-6">
-      <section className="overflow-hidden rounded-xl border bg-background shadow-sm">
-        <div className="flex flex-col gap-4 border-b px-4 py-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 space-y-2">
-            <div className="flex items-center gap-3 text-sm text-muted-foreground">
-              <Button variant="ghost" size="sm" asChild className="h-8 px-2">
-                <Link href={`/agents/triggers/schedule/${trigger.id}`}>
-                  <ArrowLeft className="mr-1 h-4 w-4" />
-                  Back to schedule
-                </Link>
-              </Button>
-              <span className="hidden sm:inline">Scheduled run</span>
-            </div>
+  const humanCadence = formatCronSchedule(run.cronExpressionSnapshot);
 
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  {trigger.name}
-                </h1>
-                <StatusBadge label={run.status} />
-                <Badge
-                  variant="outline"
-                  className="border-border/60 bg-muted/20 px-2.5 py-1 text-muted-foreground"
-                >
-                  {run.runKind}
-                </Badge>
-              </div>
-              <p className="max-w-3xl text-sm text-muted-foreground">
-                Review the queued prompt and run details, then continue the
-                conversation with the same agent below.
-              </p>
-            </div>
+  return (
+    <div className="mr-auto flex w-full max-w-[1080px] flex-col gap-4">
+      {/* Header */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" asChild className="h-7 px-2 text-muted-foreground">
+            <Link href={`/agents/triggers/schedule/${trigger.id}`}>
+              <ArrowLeft className="mr-1 h-3.5 w-3.5" />
+              {trigger.name}
+            </Link>
+          </Button>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-lg font-semibold tracking-tight">
+              Run {run.runKind}
+            </h1>
+            <StatusBadge label={run.status} />
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {conversationId && (
+              <Button variant="outline" size="sm" asChild>
+                <Link
+                  href={`/chat?conversation=${conversationId}&scheduleTriggerId=${trigger.id}&scheduleRunId=${run.id}`}
+                >
+                  Continue in chat
+                </Link>
+              </Button>
+            )}
             <Button variant="ghost" size="sm" asChild>
               <Link
                 href={`/llm/logs/session/${encodeURIComponent(getScheduleTriggerRunSessionId(run.id))}`}
@@ -456,79 +457,96 @@ export function ScheduleTriggerRunPage({
                 rel="noopener noreferrer"
               >
                 Session logs
-                <ExternalLink className="ml-2 h-4 w-4" />
+                <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
               </Link>
             </Button>
           </div>
         </div>
 
-        <div className="grid gap-0 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-          <div className="space-y-6 px-4 py-4 lg:border-r">
-            <RunPanel
-              title="Prompt snapshot"
-              description="The exact instruction used when this run was queued."
-            >
-              <div className="rounded-xl border bg-background px-4 py-3 shadow-sm">
-                <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
-                  {run.messageTemplateSnapshot}
-                </p>
-              </div>
-            </RunPanel>
-          </div>
-
-          <div className="space-y-4 px-4 py-4">
-            <RunPanel
-              title="Run metadata"
-              description="Compact execution details for the selected run."
-            >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <InlineMeta label="Target agent" value={activeAgentName} />
-                <InlineMeta label="Timezone" value={run.timezoneSnapshot} />
-                <InlineMeta
-                  label="Schedule (Cron)"
-                  value={run.cronExpressionSnapshot}
-                />
-                <InlineMeta
-                  label="Queued"
-                  value={formatTimestampWithRelative(run.createdAt)}
-                />
-                <InlineMeta
-                  label="Started"
-                  value={formatTimestampWithRelative(run.startedAt, "Not started")}
-                />
-                <InlineMeta
-                  label="Completed"
-                  value={formatTimestampWithRelative(run.completedAt, "In progress")}
-                />
-              </div>
-            </RunPanel>
-          </div>
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-xl border bg-background shadow-sm">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">Chat thread</p>
-            <p className="text-sm text-muted-foreground">
-              Continue with {activeAgentName}.
-            </p>
-          </div>
-          {((!conversationId && ensureConversationMutation.isPending) ||
-            (!conversationBootstrapError &&
-              !!conversationId &&
-              conversationLoading)) && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Preparing conversation
-            </div>
+        <p className="text-sm text-muted-foreground">
+          {activeAgentName} · {humanCadence} · {run.timezoneSnapshot}
+          {run.createdAt && (
+            <> · queued {formatRelativeTimeFromNow(run.createdAt)}</>
           )}
-        </div>
+          {run.completedAt && (
+            <> · completed {formatRelativeTimeFromNow(run.completedAt)}</>
+          )}
+        </p>
+      </div>
 
-        <div className="flex min-h-[65vh] flex-col">
+      {/* Collapsible details: prompt snapshot + metadata */}
+      <div className="overflow-hidden rounded-xl border border-border/60 bg-card">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-accent/5"
+          onClick={() => setShowDetails((prev) => !prev)}
+        >
+          <span>Prompt &amp; run details</span>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform",
+              showDetails && "rotate-180",
+            )}
+          />
+        </button>
+
+        {showDetails && (
+          <div className="border-t border-border/60 px-4 py-4 space-y-4">
+            {/* Prompt snapshot */}
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Prompt
+              </p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                {run.messageTemplateSnapshot}
+              </p>
+            </div>
+
+            {/* Metadata grid */}
+            <div className="grid gap-x-8 gap-y-3 sm:grid-cols-3">
+              <DetailItem label="Agent" value={activeAgentName} />
+              <DetailItem label="Schedule" value={humanCadence} />
+              <DetailItem label="Timezone" value={run.timezoneSnapshot} />
+              <DetailItem
+                label="Queued"
+                value={run.createdAt ? formatTimestamp(run.createdAt) : "—"}
+              />
+              <DetailItem
+                label="Started"
+                value={run.startedAt ? formatTimestamp(run.startedAt) : "Not started"}
+              />
+              <DetailItem
+                label="Completed"
+                value={run.completedAt ? formatTimestamp(run.completedAt) : "In progress"}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Chat thread — the hero */}
+      <div className="overflow-hidden rounded-xl border border-border/60 bg-background">
+        {isRunActive && (
+          <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5 text-xs text-amber-700">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Run in progress — conversation unlocks when complete
+          </div>
+        )}
+
+        {(!conversationId && ensureConversationMutation.isPending) ||
+        (!conversationBootstrapError &&
+          !!conversationId &&
+          conversationLoading) ? (
+          <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Preparing conversation
+          </div>
+        ) : null}
+
+        <div className="flex min-h-[60vh] flex-col">
           {conversationId ? (
             <>
-              <div className="flex-1 min-h-0 px-2 md:px-4">
+              <div className="min-h-0 flex-1 px-3 md:px-4">
                 <ChatMessages
                   conversationId={conversationId}
                   agentId={activeAgentId}
@@ -551,29 +569,17 @@ export function ScheduleTriggerRunPage({
               </div>
 
               {activeAgentId && conversation ? (
-                <div className="sticky bottom-0 border-t bg-background p-4">
+                <div className="sticky bottom-0 border-t border-border/60 bg-background/98 p-4 backdrop-blur-sm">
                   <div className="mx-auto w-full max-w-4xl">
                     {isRunActive ? (
-                      <div className="rounded-xl border bg-muted/20 px-4 py-5 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-2 font-medium text-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Waiting for the scheduled run to finish
-                        </div>
-                        <p className="mt-2 leading-6 text-muted-foreground">
-                          Chat stays read-only until the original run completes.
-                          When the run finishes, this page will sync the final
-                          output and enable the prompt automatically.
-                        </p>
+                      <div className="flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-4 py-4 text-sm text-muted-foreground">
+                        <LoadingSpinner />
+                        <span>Waiting for run to finish...</span>
                       </div>
                     ) : ensureConversationMutation.isPending ? (
-                      <div className="rounded-xl border bg-muted/20 px-4 py-5 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-2 font-medium text-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Finalizing the chat thread
-                        </div>
-                        <p className="mt-2 leading-6 text-muted-foreground">
-                          Syncing the completed run output into the chat thread.
-                        </p>
+                      <div className="flex items-center justify-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-4 py-4 text-sm text-muted-foreground">
+                        <LoadingSpinner />
+                        <span>Syncing run output...</span>
                       </div>
                     ) : (
                       <ArchestraPromptInput
@@ -620,42 +626,24 @@ export function ScheduleTriggerRunPage({
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center px-6 py-16 text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Creating a conversation from this run...
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Creating conversation...
+              </div>
             </div>
           )}
         </div>
-      </section>
+      </div>
     </div>
   );
 }
 
-function RunPanel({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-3">
-      <div>
-        <p className="text-xs font-medium text-foreground">{title}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-      </div>
-      {children}
-    </section>
-  );
-}
+/* ─── Small helpers ─── */
 
-function InlineMeta({ label, value }: { label: string; value: string }) {
+function DetailItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-1">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/60">
-        {label}
-      </p>
+    <div className="space-y-0.5">
+      <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-sm text-foreground">{value}</p>
     </div>
   );
@@ -666,7 +654,7 @@ function StatusBadge({ label }: { label: string }) {
     <Badge
       variant="outline"
       className={cn(
-        "border-border/60 px-2.5 py-1 capitalize",
+        "border-border/60 px-2 py-0.5 text-xs capitalize",
         label === "success" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-700",
         label === "failed" && "border-destructive/30 bg-destructive/10 text-destructive",
         (label === "pending" || label === "running") &&
@@ -680,24 +668,11 @@ function StatusBadge({ label }: { label: string }) {
 
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
-    return "Never";
+    return "—";
   }
 
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function formatTimestampWithRelative(
-  value: string | null | undefined,
-  emptyLabel = "Never",
-): string {
-  if (!value) {
-    return emptyLabel;
-  }
-
-  return `${formatTimestamp(value)} (${formatRelativeTimeFromNow(value, {
-    neverLabel: emptyLabel,
-  })})`;
 }

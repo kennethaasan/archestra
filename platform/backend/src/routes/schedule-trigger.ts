@@ -627,6 +627,9 @@ async function ensureRunConversation(params: {
   const output =
     extractScheduleRunOutputFromInteractions(interactionResult.data) ??
     getFallbackRunOutput(run);
+  const conversationTitle = buildRunConversationSeedTitle(
+    run.messageTemplateSnapshot,
+  );
 
   const conversation = existingConversationId
     ? ((await ConversationModel.findById({
@@ -638,6 +641,7 @@ async function ensureRunConversation(params: {
         userId,
         organizationId,
         agentId: run.agentIdSnapshot,
+        title: conversationTitle,
         selectedModel: llmSelection.selectedModel,
         selectedProvider: llmSelection.selectedProvider,
         chatApiKeyId: llmSelection.chatApiKeyId,
@@ -646,6 +650,7 @@ async function ensureRunConversation(params: {
         userId,
         organizationId,
         agentId: run.agentIdSnapshot,
+        title: conversationTitle,
         selectedModel: llmSelection.selectedModel,
         selectedProvider: llmSelection.selectedProvider,
         chatApiKeyId: llmSelection.chatApiKeyId,
@@ -735,6 +740,18 @@ function shouldUpdateSeededRunAssistantMessage(params: {
   }
 
   return assistantText.trim() !== latestOutput.trim();
+}
+
+function buildRunConversationSeedTitle(prompt: string): string {
+  const normalizedPrompt = prompt.trim().replace(/\s+/g, " ");
+
+  if (!normalizedPrompt) {
+    return "Scheduled run";
+  }
+
+  return normalizedPrompt.length > 72
+    ? `${normalizedPrompt.slice(0, 69).trimEnd()}...`
+    : normalizedPrompt;
 }
 
 function getFirstTextPart(content: unknown): string | null {

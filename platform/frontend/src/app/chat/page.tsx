@@ -117,13 +117,38 @@ import { useConfig } from "@/lib/config/config.query";
 import { useDialogs } from "@/lib/hooks/use-dialog";
 import { useIsMobile } from "@/lib/hooks/use-mobile";
 import { useOrganization } from "@/lib/organization.query";
+import {
+  useCreateScheduleTriggerRunConversation,
+  useScheduleTriggerRun,
+} from "@/lib/schedule-trigger.query";
 import { useTeams } from "@/lib/teams/team.query";
 import { cn } from "@/lib/utils";
 import ArchestraPromptInput from "./prompt-input";
 
 const CONVERSATION_QUERY_PARAM = "conversation";
+const SCHEDULE_TRIGGER_ID_QUERY_PARAM = "scheduleTriggerId";
+const SCHEDULE_RUN_ID_QUERY_PARAM = "scheduleRunId";
 
 const BROWSER_OPEN_KEY = "archestra-chat-browser-open";
+
+function areConversationMessagesSynced(
+  localMessages: UIMessage[],
+  backendMessages: UIMessage[],
+) {
+  if (localMessages.length !== backendMessages.length) {
+    return false;
+  }
+
+  return localMessages.every((localMessage, index) => {
+    const backendMessage = backendMessages[index];
+    return (
+      backendMessage &&
+      localMessage.id === backendMessage.id &&
+      localMessage.role === backendMessage.role &&
+      JSON.stringify(localMessage.parts) === JSON.stringify(backendMessage.parts)
+    );
+  });
+}
 
 export default function ChatPage() {
   const queryClient = useQueryClient();
@@ -467,6 +492,14 @@ export default function ChatPage() {
   const initialUserPrompt = useMemo(() => {
     return searchParams.get("user_prompt") || undefined;
   }, [searchParams]);
+  const scheduleTriggerId = useMemo(
+    () => searchParams.get(SCHEDULE_TRIGGER_ID_QUERY_PARAM) || undefined,
+    [searchParams],
+  );
+  const scheduleRunId = useMemo(
+    () => searchParams.get(SCHEDULE_RUN_ID_QUERY_PARAM) || undefined,
+    [searchParams],
+  );
 
   // Update URL when conversation changes
   const selectConversation = useCallback(
@@ -484,6 +517,25 @@ export default function ChatPage() {
   // Fetch conversation with messages
   const { data: conversation, isLoading: isLoadingConversation } =
     useConversation(conversationId);
+  const scheduleRunContextEnabled =
+    !!conversationId && !!scheduleTriggerId && !!scheduleRunId;
+  const {
+    data: scheduleRun,
+    isLoading: isLoadingScheduleRun,
+  } = useScheduleTriggerRun(scheduleTriggerId ?? null, scheduleRunId ?? null, {
+    enabled: scheduleRunContextEnabled,
+    refetchInterval: 3_000,
+  });
+  const ensureScheduleRunConversationMutation =
+    useCreateScheduleTriggerRunConversation();
+  const completedScheduleRunSyncRequestedRef = useRef<string | null>(null);
+  const isScheduleRunActive =
+    scheduleRun?.status === "pending" || scheduleRun?.status === "running";
+  const isScheduleRunPendingState =
+    scheduleRunContextEnabled &&
+    (isLoadingScheduleRun ||
+      isScheduleRunActive ||
+      ensureScheduleRunConversationMutation.isPending);
 
   // Track title generation for typing animation in the header
   const conversationForTitleTracking = useMemo(
@@ -520,6 +572,35 @@ export default function ChatPage() {
       setIsArtifactOpen(false);
     }
   }, [conversationId, conversation?.artifact, isLoadingConversation]);
+
+  useEffect(() => {
+    completedScheduleRunSyncRequestedRef.current = null;
+  }, [scheduleRunId]);
+
+  useEffect(() => {
+    if (
+      !scheduleRunContextEnabled ||
+      !scheduleRun ||
+      isLoadingScheduleRun ||
+      isScheduleRunActive ||
+      ensureScheduleRunConversationMutation.isPending ||
+      completedScheduleRunSyncRequestedRef.current === scheduleRun.id
+    ) {
+      return;
+    }
+
+    completedScheduleRunSyncRequestedRef.current = scheduleRun.id;
+    void ensureScheduleRunConversationMutation.mutateAsync({
+      triggerId: scheduleRun.triggerId,
+      runId: scheduleRun.id,
+    });
+  }, [
+    ensureScheduleRunConversationMutation,
+    isLoadingScheduleRun,
+    isScheduleRunActive,
+    scheduleRun,
+    scheduleRunContextEnabled,
+  ]);
 
   // Derive current provider from selected model
   const currentProvider = useMemo((): SupportedProvider | undefined => {
@@ -875,7 +956,11 @@ export default function ChatPage() {
       status !== "streaming" &&
       !userMessageJustEdited.current &&
       (loadedConversationRef.current !== conversationId ||
-        messages.length === 0);
+        messages.length === 0 ||
+        !areConversationMessagesSynced(
+          messages,
+          conversation.messages as UIMessage[],
+        ));
 
     if (shouldSync) {
       setMessages(conversation.messages as UIMessage[]);
@@ -1034,7 +1119,7 @@ export default function ChatPage() {
 
   const handleSubmit: PromptInputProps["onSubmit"] = (message, e) => {
     e.preventDefault();
-    if (isPlaywrightSetupVisible) return;
+    if (isPlaywrightSetupVisible || isScheduleRunPendingState) return;
     if (status === "submitted" || status === "streaming") {
       if (conversationId) {
         // Set the cache flag first, THEN close the connection so the
@@ -1761,39 +1846,47 @@ export default function ChatPage() {
                 activeAgentId && (
                   <div className="sticky bottom-0 bg-background border-t p-4">
                     <div className="max-w-4xl mx-auto space-y-3">
-                      <ArchestraPromptInput
-                        onSubmit={handleSubmit}
-                        status={status}
-                        selectedModel={conversation?.selectedModel ?? ""}
-                        onModelChange={handleModelChange}
-                        agentId={promptAgentId ?? activeAgentId}
-                        conversationId={conversationId}
-                        currentConversationChatApiKeyId={
-                          conversation?.chatApiKeyId
-                        }
-                        currentProvider={currentProvider}
-                        textareaRef={textareaRef}
-                        onProviderChange={handleProviderChange}
-                        allowFileUploads={
-                          organization?.allowChatFileUploads ?? false
-                        }
-                        isModelsLoading={isModelsLoading}
-                        tokensUsed={tokensUsed}
-                        maxContextLength={selectedModelContextLength}
-                        inputModalities={selectedModelInputModalities}
-                        agentLlmApiKeyId={
-                          conversation?.agent?.llmApiKeyId ?? null
-                        }
-                        submitDisabled={isPlaywrightSetupVisible}
-                        isPlaywrightSetupVisible={isPlaywrightSetupVisible}
-                        selectorAgentId={activeAgentId}
-                        selectorAgentName={swappedAgentName ?? undefined}
-                        onAgentChange={handleConversationAgentChange}
-                        modelSource={conversationModelSource}
-                        onResetModelOverride={
-                          handleConversationResetModelOverride
-                        }
-                      />
+                      {isScheduleRunPendingState ? (
+                        <div className="rounded-xl border bg-muted/20 px-4 py-6">
+                          <LoadingSpinner />
+                        </div>
+                      ) : (
+                        <ArchestraPromptInput
+                          onSubmit={handleSubmit}
+                          status={status}
+                          selectedModel={conversation?.selectedModel ?? ""}
+                          onModelChange={handleModelChange}
+                          agentId={promptAgentId ?? activeAgentId}
+                          conversationId={conversationId}
+                          currentConversationChatApiKeyId={
+                            conversation?.chatApiKeyId
+                          }
+                          currentProvider={currentProvider}
+                          textareaRef={textareaRef}
+                          onProviderChange={handleProviderChange}
+                          allowFileUploads={
+                            organization?.allowChatFileUploads ?? false
+                          }
+                          isModelsLoading={isModelsLoading}
+                          tokensUsed={tokensUsed}
+                          maxContextLength={selectedModelContextLength}
+                          inputModalities={selectedModelInputModalities}
+                          agentLlmApiKeyId={
+                            conversation?.agent?.llmApiKeyId ?? null
+                          }
+                          submitDisabled={
+                            isPlaywrightSetupVisible || isScheduleRunPendingState
+                          }
+                          isPlaywrightSetupVisible={isPlaywrightSetupVisible}
+                          selectorAgentId={activeAgentId}
+                          selectorAgentName={swappedAgentName ?? undefined}
+                          onAgentChange={handleConversationAgentChange}
+                          modelSource={conversationModelSource}
+                          onResetModelOverride={
+                            handleConversationResetModelOverride
+                          }
+                        />
+                      )}
                       <div className="text-center">
                         <Version inline />
                       </div>
