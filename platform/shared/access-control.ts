@@ -30,7 +30,9 @@ export const allAvailableActions: Record<Resource, Action[]> = {
 
   // LLM
   llmProxy: ["read", "create", "update", "delete", "team-admin", "admin"],
-  llmProvider: ["read", "create", "update", "delete"],
+  llmProviderApiKey: ["read", "create", "update", "delete", "admin"],
+  llmVirtualKey: ["read", "create", "update", "delete", "admin"],
+  llmModel: ["read", "update"],
   llmLimit: ["read", "create", "update", "delete"],
   optimizationRule: ["read", "create", "update", "delete"],
   llmCost: ["read"],
@@ -79,7 +81,9 @@ export const editorPermissions: Record<Resource, Action[]> = {
 
   // LLM
   llmProxy: ["read", "create", "update", "delete", "team-admin"],
-  llmProvider: ["read", "create", "update", "delete"],
+  llmProviderApiKey: ["read", "create", "update", "delete"],
+  llmVirtualKey: ["read", "create", "update", "delete"],
+  llmModel: ["read", "update"],
   llmLimit: ["read", "create", "update", "delete"],
   optimizationRule: ["read", "create", "update", "delete"],
   llmCost: ["read"],
@@ -128,7 +132,9 @@ export const memberPermissions: Record<Resource, Action[]> = {
 
   // LLM
   llmProxy: ["read", "create", "update", "delete"],
-  llmProvider: ["read"],
+  llmProviderApiKey: ["read"],
+  llmVirtualKey: ["read"],
+  llmModel: ["read"],
   llmLimit: [],
   optimizationRule: [],
   llmCost: [],
@@ -244,10 +250,20 @@ export const permissionDescriptions: Record<string, string> = {
   "llmProxy:team-admin": "Manage team assignments for LLM proxies",
   "llmProxy:admin":
     "Full administrative control over all LLM proxies, bypassing team restrictions",
-  "llmProvider:read": "View LLM provider API keys, virtual keys, and models",
-  "llmProvider:create": "Add new LLM provider API keys or virtual keys",
-  "llmProvider:update": "Modify LLM provider configuration and model pricing",
-  "llmProvider:delete": "Remove LLM provider API keys or virtual keys",
+  "llmProviderApiKey:read": "View LLM provider API keys",
+  "llmProviderApiKey:create": "Add new LLM provider API keys",
+  "llmProviderApiKey:update":
+    "Modify LLM provider API key configuration and visibility",
+  "llmProviderApiKey:delete": "Remove LLM provider API keys",
+  "llmProviderApiKey:admin":
+    "Manage all LLM provider API keys, including org-wide keys",
+  "llmVirtualKey:read": "View LLM virtual keys",
+  "llmVirtualKey:create": "Create LLM virtual keys",
+  "llmVirtualKey:update": "Modify LLM virtual keys and their visibility",
+  "llmVirtualKey:delete": "Delete LLM virtual keys",
+  "llmVirtualKey:admin": "Manage all LLM virtual keys and view every scope",
+  "llmModel:read": "View synced LLM models and capabilities",
+  "llmModel:update": "Modify LLM model pricing and modality settings",
   "llmLimit:read": "View token usage limits",
   "llmLimit:create": "Create new usage limits",
   "llmLimit:update": "Modify existing usage limits",
@@ -682,11 +698,11 @@ export const requiredEndpointPermissionsMap: Partial<
   [RouteId.GetChatMcpTools]: {
     chat: ["read"],
   },
-  [RouteId.GetChatModels]: {
-    chat: ["read"],
+  [RouteId.GetLlmModels]: {
+    llmModel: ["read"],
   },
-  [RouteId.SyncChatModels]: {
-    llmProvider: ["update"],
+  [RouteId.SyncLlmModels]: {
+    llmModel: ["update"],
   },
   [RouteId.UpdateChatMessage]: {
     chat: ["update"],
@@ -715,23 +731,23 @@ export const requiredEndpointPermissionsMap: Partial<
   [RouteId.ForkSharedConversation]: {
     chat: ["create"],
   },
-  [RouteId.GetChatApiKeys]: {
-    llmProvider: ["read"],
+  [RouteId.GetLlmProviderApiKeys]: {
+    llmProviderApiKey: ["read"],
   },
-  [RouteId.GetAvailableChatApiKeys]: {
-    llmProvider: ["read"],
+  [RouteId.GetAvailableLlmProviderApiKeys]: {
+    llmProviderApiKey: ["read"],
   },
-  [RouteId.CreateChatApiKey]: {
-    llmProvider: ["create"],
+  [RouteId.CreateLlmProviderApiKey]: {
+    llmProviderApiKey: ["create"],
   },
-  [RouteId.GetChatApiKey]: {
-    llmProvider: ["read"],
+  [RouteId.GetLlmProviderApiKey]: {
+    llmProviderApiKey: ["read"],
   },
-  [RouteId.UpdateChatApiKey]: {
-    llmProvider: ["update"],
+  [RouteId.UpdateLlmProviderApiKey]: {
+    llmProviderApiKey: ["update"],
   },
-  [RouteId.DeleteChatApiKey]: {
-    llmProvider: ["delete"],
+  [RouteId.DeleteLlmProviderApiKey]: {
+    llmProviderApiKey: ["delete"],
   },
   [RouteId.GetApiKeys]: {
     apiKey: ["read"],
@@ -746,19 +762,25 @@ export const requiredEndpointPermissionsMap: Partial<
     apiKey: ["delete"],
   },
   [RouteId.GetVirtualApiKeys]: {
-    llmProvider: ["read"],
+    llmVirtualKey: ["read"],
   },
   [RouteId.GetAllVirtualApiKeys]: {
-    llmProvider: ["read"],
+    llmVirtualKey: ["read"],
   },
   [RouteId.CreateVirtualApiKey]: {
-    llmProvider: ["create"],
+    llmVirtualKey: ["create"],
+  },
+  [RouteId.UpdateVirtualApiKey]: {
+    llmVirtualKey: ["update"],
   },
   [RouteId.DeleteVirtualApiKey]: {
-    llmProvider: ["delete"],
+    llmVirtualKey: ["delete"],
   },
   [RouteId.GetModelsWithApiKeys]: {
-    llmProvider: ["read"],
+    llmModel: ["read"],
+  },
+  [RouteId.UpdateModel]: {
+    llmModel: ["update"],
   },
   // Delegation routes: agent-type permission checked dynamically in handler
   [RouteId.GetAgentDelegations]: {},
@@ -868,9 +890,6 @@ export const requiredEndpointPermissionsMap: Partial<
   [RouteId.GetUserToken]: {},
   [RouteId.GetUserTokenValue]: {},
   [RouteId.RotateUserToken]: {},
-  [RouteId.UpdateModel]: {
-    llmProvider: ["update"],
-  },
   [RouteId.GetTeamStatistics]: {
     llmCost: ["read"],
   },
@@ -969,6 +988,11 @@ export const requiredEndpointPermissionsMap: Partial<
 
   // Config endpoint - any authenticated user can access
   [RouteId.GetConfig]: {},
+
+  // MCP Gateway Routes - available to all authenticated users
+  [RouteId.McpGatewayGet]: {}, // Server discovery endpoint
+  [RouteId.McpGatewayPost]: {}, // JSON-RPC endpoint for resources/read and tools/call
+  [RouteId.McpProxyPost]: {}, // Frontend proxy to MCP Gateway with session auth
 };
 
 /**
@@ -990,9 +1014,12 @@ export const requiredPagePermissionsMap: Record<string, Permissions> = {
 
   // LLM
   "/llm/proxies": { llmProxy: ["read"] },
-  "/llm/providers/api-keys": { llmProvider: ["read"] },
-  "/llm/providers/virtual-keys": { llmProvider: ["read"] },
-  "/llm/providers/models": { llmProvider: ["read"] },
+  "/llm/providers/api-keys": { llmProviderApiKey: ["read"] },
+  "/llm/providers/virtual-keys": {
+    llmVirtualKey: ["read"],
+    llmProviderApiKey: ["read"],
+  },
+  "/llm/providers/models": { llmModel: ["read"] },
   "/llm/limits": { llmLimit: ["read"] },
   "/llm/costs": { llmCost: ["read"] },
   "/llm/optimization-rules": { optimizationRule: ["read"] },

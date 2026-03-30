@@ -105,6 +105,84 @@ export const getWebSocketUrl = (): string => {
 };
 
 /**
+ * Compute a short hash of a string using djb2 (synchronous, no crypto dependency).
+ * Used to derive per-server sandbox subdomains from the server prefix.
+ */
+function hashPrefix(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36).padStart(8, "0");
+}
+
+/**
+ * Swap localhost ↔ 127.0.0.1 in a URL for cross-origin sandbox isolation.
+ * Both resolve to loopback but are different origins — enables allow-same-origin
+ * without DNS/TLS setup (from MCP Inspector).
+ */
+function swapLocalhostOrigin(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "localhost") {
+      parsed.hostname = "127.0.0.1";
+      return parsed.origin;
+    }
+    if (parsed.hostname === "127.0.0.1") {
+      parsed.hostname = "localhost";
+      return parsed.origin;
+    }
+  } catch {
+    // Invalid URL
+  }
+  return null;
+}
+
+/**
+ * Get the MCP sandbox proxy base URL.
+ *
+ * Three modes:
+ * 1. Domain mode (mcpSandboxDomain set): per-server subdomain → real cross-origin
+ * 2. Dev mode (localhost): localhost ↔ 127.0.0.1 swap → real cross-origin (Inspector pattern)
+ * 3. Fallback (production, no domain): same origin → opaque origin via sandbox attr
+ */
+export const getMcpSandboxBaseUrl = (
+  mcpSandboxDomain?: string | null,
+  serverPrefix?: string,
+): { baseUrl: string; hasCrossOrigin: boolean } => {
+  // Mode 1: Dedicated subdomain
+  if (mcpSandboxDomain && serverPrefix && typeof window !== "undefined") {
+    const hash = hashPrefix(serverPrefix);
+    return {
+      baseUrl: `${window.location.protocol}//${hash}.${mcpSandboxDomain}`,
+      hasCrossOrigin: true,
+    };
+  }
+
+  if (typeof window !== "undefined") {
+    const browserHost = window.location.hostname;
+
+    // Mode 2: localhost ↔ 127.0.0.1 swap (dev/quickstart, zero-config cross-origin)
+    // Only when the user is actually on localhost — not in production where the
+    // internal backend URL happens to be localhost but the browser isn't.
+    if (browserHost === "localhost" || browserHost === "127.0.0.1") {
+      const swapped = swapLocalhostOrigin(getBackendBaseUrl());
+      if (swapped) {
+        return { baseUrl: swapped, hasCrossOrigin: true };
+      }
+    }
+
+    // Mode 3: Production without sandbox domain — use the frontend's own origin.
+    // The /_sandbox/ path is proxied to the backend via Next.js rewrites.
+    // Same origin → opaque origin via sandbox attr (no allow-same-origin).
+    return { baseUrl: window.location.origin, hasCrossOrigin: false };
+  }
+
+  // SSR fallback (not reached in browser)
+  return { baseUrl: getBackendBaseUrl(), hasCrossOrigin: false };
+};
+
+/**
  * Configuration object for the frontend application.
  * Use process.env.NEXT_PUBLIC_xxxx to access build-time variables in build-time,
  * and env('NEXT_PUBLIC_xxxx') to access the runtime variables in runtime.

@@ -45,26 +45,6 @@ import MemberModel from "./member";
 import ToolModel from "./tool";
 
 class AgentModel {
-  static async findAccessContextById(
-    id: string,
-  ): Promise<Pick<
-    Agent,
-    "id" | "organizationId" | "scope" | "authorId"
-  > | null> {
-    const [agent] = await db
-      .select({
-        id: schema.agentsTable.id,
-        organizationId: schema.agentsTable.organizationId,
-        scope: schema.agentsTable.scope,
-        authorId: schema.agentsTable.authorId,
-      })
-      .from(schema.agentsTable)
-      .where(eq(schema.agentsTable.id, id))
-      .limit(1);
-
-    return agent ?? null;
-  }
-
   static async findBasicByOrganizationIdAndIds(params: {
     organizationId: string;
     agentIds: string[];
@@ -1459,10 +1439,11 @@ class AgentModel {
   }
 
   static async delete(id: string): Promise<boolean> {
-    const result = await db
+    const rows = await db
       .delete(schema.agentsTable)
-      .where(eq(schema.agentsTable.id, id));
-    return result.rowCount !== null && result.rowCount > 0;
+      .where(eq(schema.agentsTable.id, id))
+      .returning({ id: schema.agentsTable.id });
+    return rows.length > 0;
   }
 
   /** Check if an agent has any Playwright tools assigned via agent_tools. */

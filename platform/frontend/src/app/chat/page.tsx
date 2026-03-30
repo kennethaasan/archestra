@@ -1,6 +1,7 @@
 "use client";
 
 import type { UIMessage } from "@ai-sdk/react";
+import { E2eTestId } from "@shared";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -43,8 +44,8 @@ import {
 import { RightSidePanel } from "@/components/chat/right-side-panel";
 import { ShareConversationDialog } from "@/components/chat/share-conversation-dialog";
 import { StreamTimeoutWarning } from "@/components/chat/stream-timeout-warning";
-import type { ChatApiKeyFormValues } from "@/components/chat-api-key-form";
-import { CreateChatApiKeyDialog } from "@/components/create-chat-api-key-dialog";
+import { CreateLlmProviderApiKeyDialog } from "@/components/create-llm-provider-api-key-dialog";
+import type { LlmProviderApiKeyFormValues } from "@/components/llm-provider-api-key-form";
 import { LoadingSpinner } from "@/components/loading";
 import { Button } from "@/components/ui/button";
 import {
@@ -84,14 +85,6 @@ import {
   useUpdateConversationEnabledTools,
 } from "@/lib/chat/chat.query";
 import { useChatAgentState } from "@/lib/chat/chat-agent-state.hook";
-import {
-  useChatModels,
-  useModelsByProvider,
-} from "@/lib/chat/chat-models.query";
-import {
-  type SupportedProvider,
-  useChatApiKeys,
-} from "@/lib/chat/chat-settings.query";
 import { useConversationShare } from "@/lib/chat/chat-share.query";
 import {
   conversationStorageKeys,
@@ -116,6 +109,11 @@ import {
 import { useConfig } from "@/lib/config/config.query";
 import { useDialogs } from "@/lib/hooks/use-dialog";
 import { useIsMobile } from "@/lib/hooks/use-mobile";
+import { useLlmModels, useLlmModelsByProvider } from "@/lib/llm-models.query";
+import {
+  type SupportedProvider,
+  useLlmProviderApiKeys,
+} from "@/lib/llm-provider-api-keys.query";
 import { useOrganization } from "@/lib/organization.query";
 import {
   useCreateScheduleTriggerRunConversation,
@@ -205,7 +203,7 @@ export default function ChatPage() {
     agent: ["read"],
   });
   const { data: canReadLlmProvider } = useHasPermissions({
-    llmProvider: ["read"],
+    llmProviderApiKey: ["read"],
   });
   const { data: canReadTeams } = useHasPermissions({
     team: ["read"],
@@ -238,9 +236,9 @@ export default function ChatPage() {
 
   // Fetch profiles and models for initial chat (no conversation)
   const { modelsByProvider, isPending: isModelsLoading } =
-    useModelsByProvider();
+    useLlmModelsByProvider();
   const { data: chatApiKeys = [], isLoading: isLoadingApiKeys } =
-    useChatApiKeys({ enabled: hasChatAccess });
+    useLlmProviderApiKeys({ enabled: hasChatAccess });
   const { data: organization, isPending: isOrgLoading } = useOrganization();
 
   // State for initial chat (when no conversation exists yet)
@@ -449,7 +447,7 @@ export default function ChatPage() {
   const chatSession = useChatSession(conversationId);
 
   const { isLoading: isLoadingFeatures } = useConfig();
-  const { data: chatModels = [] } = useChatModels();
+  const { data: chatModels = [] } = useLlmModels();
   // Check if user has any API keys (including system keys for keyless providers
   // like Vertex AI Gemini, vLLM, or Ollama which don't require secrets)
   const hasAnyApiKey = chatApiKeys.length > 0;
@@ -1461,7 +1459,7 @@ export default function ChatPage() {
     const missingPermissions: string[] = [];
     if (canReadAgent === false) missingPermissions.push("agent:read");
     if (canReadLlmProvider === false)
-      missingPermissions.push("llmProvider:read");
+      missingPermissions.push("llmProviderApiKey:read");
     return (
       <Empty className="h-full">
         <EmptyHeader>
@@ -2064,7 +2062,7 @@ export default function ChatPage() {
 // No API Key Setup — shown when user has no API keys configured
 // =========================================================================
 
-const DEFAULT_FORM_VALUES: ChatApiKeyFormValues = {
+const DEFAULT_FORM_VALUES: LlmProviderApiKeyFormValues = {
   name: "",
   provider: "anthropic",
   apiKey: null,
@@ -2089,12 +2087,15 @@ function NoApiKeySetup() {
             Connect an LLM provider to start chatting
           </p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)}>
+        <Button
+          data-testid={E2eTestId.QuickstartAddApiKeyButton}
+          onClick={() => setIsDialogOpen(true)}
+        >
           <Plus className="h-4 w-4 mr-2" />
           Add API Key
         </Button>
       </div>
-      <CreateChatApiKeyDialog
+      <CreateLlmProviderApiKeyDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         title="Add API Key"

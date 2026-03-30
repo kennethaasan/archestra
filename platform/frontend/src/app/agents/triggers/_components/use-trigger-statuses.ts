@@ -1,9 +1,9 @@
-import { useChatApiKeys } from "@/lib/chat/chat-settings.query";
 import { useChatOpsStatus } from "@/lib/chatops/chatops.query";
 import { useIncomingEmailStatus } from "@/lib/chatops/incoming-email.query";
 import config from "@/lib/config/config";
 import { useConfig } from "@/lib/config/config.query";
 import { useHasActiveScheduleTriggers } from "@/lib/schedule-trigger.query";
+import { useLlmProviderApiKeys } from "@/lib/llm-provider-api-keys.query";
 
 export function useTriggerStatuses() {
   const { data: chatOpsProviders, isLoading: chatOpsLoading } =
@@ -14,7 +14,7 @@ export function useTriggerStatuses() {
   const { data: scheduleActive = false, isLoading: scheduleLoading } =
     useHasActiveScheduleTriggers();
   const { data: chatApiKeys = [], isLoading: apiKeysLoading } =
-    useChatApiKeys();
+    useLlmProviderApiKeys();
 
   const hasLlmKey = chatApiKeys.length > 0;
   const ngrokDomain = configData?.features.ngrokDomain;

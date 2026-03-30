@@ -45,12 +45,7 @@ const APP_NAME = DEFAULT_APP_NAME;
 const {
   api: { apiKeyAuthorizationHeaderName },
   frontendBaseUrl,
-  auth: {
-    secret,
-    cookieDomain,
-    trustedOrigins,
-    additionalTrustedSsoProviderIds,
-  },
+  auth: { secret, cookieDomain, trustedOrigins },
 } = config;
 
 const ac = createAccessControl(allAvailableActions);
@@ -241,16 +236,11 @@ export const auth = betterAuth({
     accountLinking: {
       enabled: true,
       /**
-       * Trust SSO providers for automatic account linking
-       * This allows existing users to sign in with SSO without manual linking
-       *
-       * Combines default trusted providers from @shared with additional ones
-       * configured via ARCHESTRA_AUTH_TRUSTED_SSO_PROVIDER_IDS env var
+       * Trust built-in SSO providers plus any identity providers configured by users.
+       * This allows existing users to sign in with built-in providers and custom
+       * generic OIDC/SAML providers without an env var override.
        */
-      trustedProviders: [
-        ...SSO_TRUSTED_PROVIDER_IDS,
-        ...additionalTrustedSsoProviderIds,
-      ],
+      trustedProviders: getTrustedAccountLinkingProviderIds,
       /**
        * Don't allow linking accounts with different emails. From the better-auth typescript
        * annotations they mention for this attribute:
@@ -404,6 +394,19 @@ function getBetterAuthLogLevel(
 }
 
 export type BetterAuth = typeof auth;
+
+async function getTrustedAccountLinkingProviderIds(): Promise<string[]> {
+  if (!config.enterpriseFeatures.core) {
+    return [...SSO_TRUSTED_PROVIDER_IDS];
+  }
+
+  const { default: IdentityProviderModel } = await import(
+    // biome-ignore lint/style/noRestrictedImports: runtime-gated EE model import
+    "@/models/identity-provider.ee"
+  );
+
+  return IdentityProviderModel.getTrustedAccountLinkingProviderIds();
+}
 
 /**
  * Validates requests before they are processed by better-auth.
@@ -622,7 +625,7 @@ export async function handleBeforeHook(ctx: HookEndpointContext) {
  * - Setting active organization for new sessions
  */
 export async function handleAfterHook(ctx: HookEndpointContext) {
-  const { path, method, body, context } = ctx;
+  const { path, method, body, context, request } = ctx;
 
   if (!path) {
     return ctx;
@@ -791,17 +794,57 @@ export async function handleAfterHook(ctx: HookEndpointContext) {
       // SSO Role & Team Sync: Synchronize role and team memberships based on SSO claims
       // Only applies to SSO logins (not regular email/password logins)
       if (path.startsWith("/sso/callback")) {
+        const providerIdHint = getSsoCallbackProviderId({
+          path,
+          requestUrl: request?.url,
+        });
+
         logger.debug(
-          { userId, email: user.email },
+          { userId, email: user.email, providerIdHint },
           "[auth:afterHook] Processing SSO role and team sync",
         );
 
         // Sync role first (based on role mapping rules)
-        await syncSsoRole(userId, user.email);
+        await syncSsoRole(userId, user.email, providerIdHint);
 
         // Then sync teams (based on SSO groups)
-        await syncSsoTeams(userId, user.email);
+        await syncSsoTeams(userId, user.email, providerIdHint);
       }
     }
   }
+}
+
+function getSsoCallbackProviderId(params: {
+  path: string;
+  requestUrl?: string;
+}): string | undefined {
+  const callbackPrefix = "/sso/callback/";
+
+  if (params.requestUrl) {
+    try {
+      const callbackPath = new URL(params.requestUrl).pathname;
+      const callbackIndex = callbackPath.indexOf(callbackPrefix);
+      if (callbackIndex >= 0) {
+        const providerId = callbackPath
+          .slice(callbackIndex + callbackPrefix.length)
+          .split("/")[0];
+        if (providerId) {
+          return providerId;
+        }
+      }
+    } catch {
+      // Fall back to the normalized route path below.
+    }
+  }
+
+  if (!params.path.startsWith(callbackPrefix)) {
+    return undefined;
+  }
+
+  const providerId = params.path.slice(callbackPrefix.length).split("/")[0];
+  if (providerId.startsWith(":")) {
+    return undefined;
+  }
+
+  return providerId || undefined;
 }
