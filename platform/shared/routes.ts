@@ -251,6 +251,7 @@ export const RouteId = {
   ForkSharedConversation: "forkSharedConversation",
   GetLlmModels: "getLlmModels",
   SyncLlmModels: "syncLlmModels",
+  SyncChatModelsFull: "syncChatModelsFull",
 
   // LLM Provider API Key Routes
   GetLlmProviderApiKeys: "getLlmProviderApiKeys",

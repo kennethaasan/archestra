@@ -715,7 +715,7 @@ function shouldUpdateSeededRunAssistantMessage(params: {
 }): boolean {
   const { messages, prompt, latestOutput } = params;
 
-  if (messages.length !== 2) {
+  if (messages.length < 2) {
     return false;
   }
 

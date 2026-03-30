@@ -356,6 +356,127 @@ describe("schedule trigger routes", () => {
     });
   });
 
+  test("refreshes the seeded assistant message even after follow-up replies", async ({
+    makeInternalAgent,
+  }) => {
+    const agent = await makeInternalAgent({
+      organizationId,
+      scope: "org",
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/schedule-triggers",
+      payload: {
+        name: "Output sync with replies",
+        agentId: agent.id,
+        cronExpression: "0 12 * * *",
+        timezone: "UTC",
+        messageTemplate: "Summarize the latest run",
+      },
+    });
+    const created = createResponse.json();
+
+    const runNowResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/run-now`,
+    });
+    const run = runNowResponse.json();
+
+    const initialConversationResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/runs/${run.id}/conversation`,
+    });
+    const conversation = initialConversationResponse.json();
+    const MessageModel = (await import("@/models/message")).default;
+
+    await MessageModel.bulkCreate([
+      {
+        conversationId: conversation.id,
+        role: "user",
+        content: {
+          role: "user",
+          parts: [{ type: "text", text: "Please keep going" }],
+        },
+        createdAt: new Date(Date.now() + 10),
+      },
+      {
+        conversationId: conversation.id,
+        role: "assistant",
+        content: {
+          role: "assistant",
+          parts: [{ type: "text", text: "Waiting for the run to finish." }],
+        },
+        createdAt: new Date(Date.now() + 11),
+      },
+    ]);
+
+    await InteractionModel.create({
+      profileId: agent.id,
+      userId: user.id,
+      sessionId: `schedule-trigger-run:${run.id}`,
+      source: "chat",
+      request: {
+        model: "gpt-4o",
+        messages: [{ role: "user", content: "Summarize the latest run" }],
+      },
+      response: {
+        id: "chatcmpl-run-output-with-replies",
+        object: "chat.completion",
+        created: 1234567890,
+        model: "gpt-4o",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: "Final synced run output",
+            },
+            finish_reason: "stop",
+            logprobs: null,
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 10,
+          total_tokens: 20,
+        },
+      },
+      type: "openai:chatCompletions",
+      model: "gpt-4o",
+      inputTokens: 10,
+      outputTokens: 10,
+    });
+
+    const refreshedConversationResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/runs/${run.id}/conversation`,
+    });
+
+    expect(refreshedConversationResponse.statusCode).toBe(200);
+    expect(refreshedConversationResponse.json()).toMatchObject({
+      id: conversation.id,
+      messages: [
+        expect.objectContaining({
+          role: "user",
+          parts: [{ type: "text", text: "Summarize the latest run" }],
+        }),
+        expect.objectContaining({
+          role: "assistant",
+          parts: [{ type: "text", text: "Final synced run output" }],
+        }),
+        expect.objectContaining({
+          role: "user",
+          parts: [{ type: "text", text: "Please keep going" }],
+        }),
+        expect.objectContaining({
+          role: "assistant",
+          parts: [{ type: "text", text: "Waiting for the run to finish." }],
+        }),
+      ],
+    });
+  });
+
   test("rejects create when the user lacks access to the selected agent", async ({
     makeInternalAgent,
     makeTeam,
