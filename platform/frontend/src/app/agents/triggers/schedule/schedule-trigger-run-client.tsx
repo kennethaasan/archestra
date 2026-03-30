@@ -31,9 +31,9 @@ import {
 } from "@/lib/chat/chat.query";
 import { useChatSession } from "@/lib/chat/global-chat.context";
 import {
-  useChatModels,
-  useModelsByProvider,
-} from "@/lib/chat/chat-models.query";
+  useLlmModels,
+  useLlmModelsByProvider,
+} from "@/lib/llm-models.query";
 import { useOrganization } from "@/lib/organization.query";
 import {
   useCreateScheduleTriggerRunConversation,
@@ -112,8 +112,8 @@ export function ScheduleTriggerRunPage({
 
   const isRunActive = isScheduleTriggerRunActive(run?.status);
 
-  const { data: chatModels = [] } = useChatModels();
-  const { modelsByProvider } = useModelsByProvider();
+  const { data: chatModels = [] } = useLlmModels();
+  const { modelsByProvider } = useLlmModelsByProvider();
   const { data: organization } = useOrganization();
   const { data: internalAgents = [] } = useInternalAgents({
     enabled: !!conversation?.agentId,

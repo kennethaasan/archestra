@@ -4,10 +4,10 @@ category: Agents
 subcategory: Agent Triggers
 order: 7
 description: Run internal agents on cron schedules with persisted execution identity
-lastUpdated: 2026-03-18
+lastUpdated: 2026-03-30
 ---
 
-![Scheduled trigger dialog](/docs/automated_screenshots/platform-agent-triggers-schedule_create-dialog.png)
+![Scheduled triggers page with create form](/docs/automated_screenshots/platform-agent-triggers-schedule_create-dialog.png)
 
 Scheduled Triggers let you run an internal agent without Slack, MS Teams, or email. Each trigger stores the target agent, cron expression, timezone, message template, and the user identity that will execute future runs.
 

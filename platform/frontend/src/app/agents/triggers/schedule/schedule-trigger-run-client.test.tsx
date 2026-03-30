@@ -11,8 +11,8 @@ const mockUseCreateScheduleTriggerRunConversation = vi.fn();
 const mockUseConversation = vi.fn();
 const mockUseChatSession = vi.fn();
 const mockUseInteractions = vi.fn();
-const mockUseChatModels = vi.fn();
-const mockUseModelsByProvider = vi.fn();
+const mockUseLlmModels = vi.fn();
+const mockUseLlmModelsByProvider = vi.fn();
 const mockUseOrganization = vi.fn();
 const mockUseInternalAgents = vi.fn();
 const mockUseUpdateConversation = vi.fn();
@@ -39,9 +39,9 @@ vi.mock("@/lib/interactions/interaction.query", () => ({
   useInteractions: (...args: unknown[]) => mockUseInteractions(...args),
 }));
 
-vi.mock("@/lib/chat/chat-models.query", () => ({
-  useChatModels: (...args: unknown[]) => mockUseChatModels(...args),
-  useModelsByProvider: (...args: unknown[]) => mockUseModelsByProvider(...args),
+vi.mock("@/lib/llm-models.query", () => ({
+  useLlmModels: (...args: unknown[]) => mockUseLlmModels(...args),
+  useLlmModelsByProvider: (...args: unknown[]) => mockUseLlmModelsByProvider(...args),
 }));
 
 vi.mock("@/lib/organization.query", () => ({
@@ -176,8 +176,8 @@ describe("ScheduleTriggerRunPage", () => {
       data: { data: [] },
       isLoading: false,
     });
-    mockUseChatModels.mockReturnValue({ data: [] });
-    mockUseModelsByProvider.mockReturnValue({ modelsByProvider: {} });
+    mockUseLlmModels.mockReturnValue({ data: [] });
+    mockUseLlmModelsByProvider.mockReturnValue({ modelsByProvider: {} });
     mockUseOrganization.mockReturnValue({ data: { allowChatFileUploads: false } });
     mockUseInternalAgents.mockReturnValue({ data: [] });
     mockUseUpdateConversation.mockReturnValue({ mutate: vi.fn() });
