@@ -952,7 +952,7 @@ export function ScheduleTriggerDetailPage({
                     }))
                   }
                   placeholder="Ask the scheduled agent to do something on every run..."
-                  className="min-h-[120px] resize-y border-0 bg-transparent dark:bg-transparent px-5 py-4 text-sm shadow-none focus-visible:ring-0"
+                  className="min-h-[120px] resize-y border-0 bg-transparent dark:bg-transparent px-5 py-4 text-sm leading-7 text-foreground/90 shadow-none focus-visible:ring-0"
                 />
               </section>
 
