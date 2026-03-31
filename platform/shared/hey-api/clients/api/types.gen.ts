@@ -27524,6 +27524,83 @@ export type SyncLlmModelsResponses = {
 
 export type SyncLlmModelsResponse = SyncLlmModelsResponses[keyof SyncLlmModelsResponses];
 
+export type SyncChatModelsFullData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/chat/models/sync-full';
+};
+
+export type SyncChatModelsFullErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type SyncChatModelsFullError = SyncChatModelsFullErrors[keyof SyncChatModelsFullErrors];
+
+export type SyncChatModelsFullResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        success: boolean;
+    };
+};
+
+export type SyncChatModelsFullResponse = SyncChatModelsFullResponses[keyof SyncChatModelsFullResponses];
+
 export type GetModelsWithApiKeysData = {
     body?: never;
     path?: never;
@@ -34654,6 +34731,1161 @@ export type PerplexityChatCompletionsWithAgentResponses = {
 };
 
 export type PerplexityChatCompletionsWithAgentResponse = PerplexityChatCompletionsWithAgentResponses[keyof PerplexityChatCompletionsWithAgentResponses];
+
+export type GetScheduleTriggersData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+        offset?: number;
+        enabled?: boolean;
+    };
+    url: '/api/schedule-triggers';
+};
+
+export type GetScheduleTriggersErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type GetScheduleTriggersError = GetScheduleTriggersErrors[keyof GetScheduleTriggersErrors];
+
+export type GetScheduleTriggersResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        data: Array<{
+            id: string;
+            organizationId: string;
+            name: string;
+            agentId: string;
+            messageTemplate: string;
+            scheduleKind: 'cron';
+            cronExpression: string;
+            timezone: string;
+            enabled: boolean;
+            actorUserId: string;
+            overlapPolicy: 'skip' | 'buffer_one' | 'allow_all';
+            consecutiveFailures: number;
+            maxConsecutiveFailures: number;
+            nextDueAt: string | null;
+            lastRunAt: string | null;
+            lastRunStatus: 'pending' | 'running' | 'success' | 'failed';
+            lastError: string | null;
+            createdAt: string;
+            updatedAt: string;
+            actor?: {
+                id: string;
+                name: string | null;
+                email: string | null;
+            } | null;
+            agent?: {
+                id: string;
+                name: string | null;
+                agentType: string | null;
+            } | null;
+        }>;
+        pagination: {
+            currentPage: number;
+            limit: number;
+            total: number;
+            totalPages: number;
+            hasNext: boolean;
+            hasPrev: boolean;
+        };
+    };
+};
+
+export type GetScheduleTriggersResponse = GetScheduleTriggersResponses[keyof GetScheduleTriggersResponses];
+
+export type CreateScheduleTriggerData = {
+    body: {
+        name: string;
+        agentId: string;
+        enabled?: boolean;
+        overlapPolicy?: 'skip' | 'buffer_one' | 'allow_all';
+        maxConsecutiveFailures?: number;
+        cronExpression: string;
+        timezone: string;
+        messageTemplate: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/schedule-triggers';
+};
+
+export type CreateScheduleTriggerErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type CreateScheduleTriggerError = CreateScheduleTriggerErrors[keyof CreateScheduleTriggerErrors];
+
+export type CreateScheduleTriggerResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        id: string;
+        organizationId: string;
+        name: string;
+        agentId: string;
+        messageTemplate: string;
+        scheduleKind: 'cron';
+        cronExpression: string;
+        timezone: string;
+        enabled: boolean;
+        actorUserId: string;
+        overlapPolicy: 'skip' | 'buffer_one' | 'allow_all';
+        consecutiveFailures: number;
+        maxConsecutiveFailures: number;
+        nextDueAt: string | null;
+        lastRunAt: string | null;
+        lastRunStatus: 'pending' | 'running' | 'success' | 'failed';
+        lastError: string | null;
+        createdAt: string;
+        updatedAt: string;
+        actor?: {
+            id: string;
+            name: string | null;
+            email: string | null;
+        } | null;
+        agent?: {
+            id: string;
+            name: string | null;
+            agentType: string | null;
+        } | null;
+    };
+};
+
+export type CreateScheduleTriggerResponse = CreateScheduleTriggerResponses[keyof CreateScheduleTriggerResponses];
+
+export type DeleteScheduleTriggerData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/schedule-triggers/{id}';
+};
+
+export type DeleteScheduleTriggerErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type DeleteScheduleTriggerError = DeleteScheduleTriggerErrors[keyof DeleteScheduleTriggerErrors];
+
+export type DeleteScheduleTriggerResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        success: boolean;
+    };
+};
+
+export type DeleteScheduleTriggerResponse = DeleteScheduleTriggerResponses[keyof DeleteScheduleTriggerResponses];
+
+export type GetScheduleTriggerData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/schedule-triggers/{id}';
+};
+
+export type GetScheduleTriggerErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type GetScheduleTriggerError = GetScheduleTriggerErrors[keyof GetScheduleTriggerErrors];
+
+export type GetScheduleTriggerResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        id: string;
+        organizationId: string;
+        name: string;
+        agentId: string;
+        messageTemplate: string;
+        scheduleKind: 'cron';
+        cronExpression: string;
+        timezone: string;
+        enabled: boolean;
+        actorUserId: string;
+        overlapPolicy: 'skip' | 'buffer_one' | 'allow_all';
+        consecutiveFailures: number;
+        maxConsecutiveFailures: number;
+        nextDueAt: string | null;
+        lastRunAt: string | null;
+        lastRunStatus: 'pending' | 'running' | 'success' | 'failed';
+        lastError: string | null;
+        createdAt: string;
+        updatedAt: string;
+        actor?: {
+            id: string;
+            name: string | null;
+            email: string | null;
+        } | null;
+        agent?: {
+            id: string;
+            name: string | null;
+            agentType: string | null;
+        } | null;
+    };
+};
+
+export type GetScheduleTriggerResponse = GetScheduleTriggerResponses[keyof GetScheduleTriggerResponses];
+
+export type UpdateScheduleTriggerData = {
+    body: {
+        name?: string;
+        agentId?: string;
+        enabled?: boolean;
+        overlapPolicy?: 'skip' | 'buffer_one' | 'allow_all';
+        maxConsecutiveFailures?: number;
+        cronExpression?: string;
+        timezone?: string;
+        messageTemplate?: string;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/schedule-triggers/{id}';
+};
+
+export type UpdateScheduleTriggerErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type UpdateScheduleTriggerError = UpdateScheduleTriggerErrors[keyof UpdateScheduleTriggerErrors];
+
+export type UpdateScheduleTriggerResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        id: string;
+        organizationId: string;
+        name: string;
+        agentId: string;
+        messageTemplate: string;
+        scheduleKind: 'cron';
+        cronExpression: string;
+        timezone: string;
+        enabled: boolean;
+        actorUserId: string;
+        overlapPolicy: 'skip' | 'buffer_one' | 'allow_all';
+        consecutiveFailures: number;
+        maxConsecutiveFailures: number;
+        nextDueAt: string | null;
+        lastRunAt: string | null;
+        lastRunStatus: 'pending' | 'running' | 'success' | 'failed';
+        lastError: string | null;
+        createdAt: string;
+        updatedAt: string;
+        actor?: {
+            id: string;
+            name: string | null;
+            email: string | null;
+        } | null;
+        agent?: {
+            id: string;
+            name: string | null;
+            agentType: string | null;
+        } | null;
+    };
+};
+
+export type UpdateScheduleTriggerResponse = UpdateScheduleTriggerResponses[keyof UpdateScheduleTriggerResponses];
+
+export type EnableScheduleTriggerData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/schedule-triggers/{id}/enable';
+};
+
+export type EnableScheduleTriggerErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type EnableScheduleTriggerError = EnableScheduleTriggerErrors[keyof EnableScheduleTriggerErrors];
+
+export type EnableScheduleTriggerResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        id: string;
+        organizationId: string;
+        name: string;
+        agentId: string;
+        messageTemplate: string;
+        scheduleKind: 'cron';
+        cronExpression: string;
+        timezone: string;
+        enabled: boolean;
+        actorUserId: string;
+        overlapPolicy: 'skip' | 'buffer_one' | 'allow_all';
+        consecutiveFailures: number;
+        maxConsecutiveFailures: number;
+        nextDueAt: string | null;
+        lastRunAt: string | null;
+        lastRunStatus: 'pending' | 'running' | 'success' | 'failed';
+        lastError: string | null;
+        createdAt: string;
+        updatedAt: string;
+        actor?: {
+            id: string;
+            name: string | null;
+            email: string | null;
+        } | null;
+        agent?: {
+            id: string;
+            name: string | null;
+            agentType: string | null;
+        } | null;
+    };
+};
+
+export type EnableScheduleTriggerResponse = EnableScheduleTriggerResponses[keyof EnableScheduleTriggerResponses];
+
+export type DisableScheduleTriggerData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/schedule-triggers/{id}/disable';
+};
+
+export type DisableScheduleTriggerErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type DisableScheduleTriggerError = DisableScheduleTriggerErrors[keyof DisableScheduleTriggerErrors];
+
+export type DisableScheduleTriggerResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        id: string;
+        organizationId: string;
+        name: string;
+        agentId: string;
+        messageTemplate: string;
+        scheduleKind: 'cron';
+        cronExpression: string;
+        timezone: string;
+        enabled: boolean;
+        actorUserId: string;
+        overlapPolicy: 'skip' | 'buffer_one' | 'allow_all';
+        consecutiveFailures: number;
+        maxConsecutiveFailures: number;
+        nextDueAt: string | null;
+        lastRunAt: string | null;
+        lastRunStatus: 'pending' | 'running' | 'success' | 'failed';
+        lastError: string | null;
+        createdAt: string;
+        updatedAt: string;
+        actor?: {
+            id: string;
+            name: string | null;
+            email: string | null;
+        } | null;
+        agent?: {
+            id: string;
+            name: string | null;
+            agentType: string | null;
+        } | null;
+    };
+};
+
+export type DisableScheduleTriggerResponse = DisableScheduleTriggerResponses[keyof DisableScheduleTriggerResponses];
+
+export type RunScheduleTriggerNowData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/schedule-triggers/{id}/run-now';
+};
+
+export type RunScheduleTriggerNowErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type RunScheduleTriggerNowError = RunScheduleTriggerNowErrors[keyof RunScheduleTriggerNowErrors];
+
+export type RunScheduleTriggerNowResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        id: string;
+        organizationId: string;
+        triggerId: string;
+        runKind: 'due' | 'manual';
+        status: 'pending' | 'running' | 'success' | 'failed';
+        dueAt: string | null;
+        initiatedByUserId: string | null;
+        agentIdSnapshot: string;
+        messageTemplateSnapshot: string;
+        actorUserIdSnapshot: string;
+        timezoneSnapshot: string;
+        cronExpressionSnapshot: string;
+        chatConversationId: string | null;
+        startedAt: string | null;
+        completedAt: string | null;
+        error: string | null;
+        createdAt: string;
+        updatedAt: string;
+    };
+};
+
+export type RunScheduleTriggerNowResponse = RunScheduleTriggerNowResponses[keyof RunScheduleTriggerNowResponses];
+
+export type GetScheduleTriggerRunsData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        limit?: number;
+        offset?: number;
+        status?: 'pending' | 'running' | 'success' | 'failed';
+    };
+    url: '/api/schedule-triggers/{id}/runs';
+};
+
+export type GetScheduleTriggerRunsErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type GetScheduleTriggerRunsError = GetScheduleTriggerRunsErrors[keyof GetScheduleTriggerRunsErrors];
+
+export type GetScheduleTriggerRunsResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        data: Array<{
+            id: string;
+            organizationId: string;
+            triggerId: string;
+            runKind: 'due' | 'manual';
+            status: 'pending' | 'running' | 'success' | 'failed';
+            dueAt: string | null;
+            initiatedByUserId: string | null;
+            agentIdSnapshot: string;
+            messageTemplateSnapshot: string;
+            actorUserIdSnapshot: string;
+            timezoneSnapshot: string;
+            cronExpressionSnapshot: string;
+            chatConversationId: string | null;
+            startedAt: string | null;
+            completedAt: string | null;
+            error: string | null;
+            createdAt: string;
+            updatedAt: string;
+        }>;
+        pagination: {
+            currentPage: number;
+            limit: number;
+            total: number;
+            totalPages: number;
+            hasNext: boolean;
+            hasPrev: boolean;
+        };
+    };
+};
+
+export type GetScheduleTriggerRunsResponse = GetScheduleTriggerRunsResponses[keyof GetScheduleTriggerRunsResponses];
+
+export type GetScheduleTriggerRunData = {
+    body?: never;
+    path: {
+        id: string;
+        runId: string;
+    };
+    query?: never;
+    url: '/api/schedule-triggers/{id}/runs/{runId}';
+};
+
+export type GetScheduleTriggerRunErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type GetScheduleTriggerRunError = GetScheduleTriggerRunErrors[keyof GetScheduleTriggerRunErrors];
+
+export type GetScheduleTriggerRunResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        id: string;
+        organizationId: string;
+        triggerId: string;
+        runKind: 'due' | 'manual';
+        status: 'pending' | 'running' | 'success' | 'failed';
+        dueAt: string | null;
+        initiatedByUserId: string | null;
+        agentIdSnapshot: string;
+        messageTemplateSnapshot: string;
+        actorUserIdSnapshot: string;
+        timezoneSnapshot: string;
+        cronExpressionSnapshot: string;
+        chatConversationId: string | null;
+        startedAt: string | null;
+        completedAt: string | null;
+        error: string | null;
+        createdAt: string;
+        updatedAt: string;
+    };
+};
+
+export type GetScheduleTriggerRunResponse = GetScheduleTriggerRunResponses[keyof GetScheduleTriggerRunResponses];
+
+export type CreateScheduleTriggerRunConversationData = {
+    body?: never;
+    path: {
+        id: string;
+        runId: string;
+    };
+    query?: never;
+    url: '/api/schedule-triggers/{id}/runs/{runId}/conversation';
+};
+
+export type CreateScheduleTriggerRunConversationErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+        };
+    };
+};
+
+export type CreateScheduleTriggerRunConversationError = CreateScheduleTriggerRunConversationErrors[keyof CreateScheduleTriggerRunConversationErrors];
+
+export type CreateScheduleTriggerRunConversationResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        id: string;
+        userId: string;
+        organizationId: string;
+        agentId: string | null;
+        chatApiKeyId: string | null;
+        title: string | null;
+        selectedModel: string;
+        selectedProvider: 'openai' | 'gemini' | 'anthropic' | 'bedrock' | 'cohere' | 'cerebras' | 'mistral' | 'perplexity' | 'groq' | 'xai' | 'openrouter' | 'vllm' | 'ollama' | 'zhipuai' | 'deepseek' | 'minimax';
+        hasCustomToolSelection: boolean;
+        todoList: string | number | boolean | null | {
+            [key: string]: unknown;
+        } | Array<unknown> | null;
+        artifact: string | null;
+        pinnedAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+        agent: {
+            id: string;
+            name: string;
+            systemPrompt: string | null;
+            agentType: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';
+            llmApiKeyId: string | null;
+        } | null;
+        messages: Array<unknown>;
+    };
+};
+
+export type CreateScheduleTriggerRunConversationResponse = CreateScheduleTriggerRunConversationResponses[keyof CreateScheduleTriggerRunConversationResponses];
 
 export type GetSecretsTypeData = {
     body?: never;
