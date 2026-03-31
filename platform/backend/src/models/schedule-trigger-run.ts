@@ -36,19 +36,26 @@ class ScheduleTriggerRunModel {
   static async countByTrigger(params: {
     organizationId: string;
     triggerId: string;
+    status?: ScheduleTriggerRunStatus;
   }): Promise<number> {
+    const conditions = [
+      eq(
+        schema.scheduleTriggerRunsTable.organizationId,
+        params.organizationId,
+      ),
+      eq(schema.scheduleTriggerRunsTable.triggerId, params.triggerId),
+    ];
+
+    if (params.status) {
+      conditions.push(
+        eq(schema.scheduleTriggerRunsTable.status, params.status),
+      );
+    }
+
     const [result] = await db
       .select({ count: count() })
       .from(schema.scheduleTriggerRunsTable)
-      .where(
-        and(
-          eq(
-            schema.scheduleTriggerRunsTable.organizationId,
-            params.organizationId,
-          ),
-          eq(schema.scheduleTriggerRunsTable.triggerId, params.triggerId),
-        ),
-      );
+      .where(and(...conditions));
 
     return result?.count ?? 0;
   }
@@ -58,19 +65,26 @@ class ScheduleTriggerRunModel {
     triggerId: string;
     limit?: number;
     offset?: number;
+    status?: ScheduleTriggerRunStatus;
   }): Promise<ScheduleTriggerRun[]> {
+    const conditions = [
+      eq(
+        schema.scheduleTriggerRunsTable.organizationId,
+        params.organizationId,
+      ),
+      eq(schema.scheduleTriggerRunsTable.triggerId, params.triggerId),
+    ];
+
+    if (params.status) {
+      conditions.push(
+        eq(schema.scheduleTriggerRunsTable.status, params.status),
+      );
+    }
+
     let query = db
       .select()
       .from(schema.scheduleTriggerRunsTable)
-      .where(
-        and(
-          eq(
-            schema.scheduleTriggerRunsTable.organizationId,
-            params.organizationId,
-          ),
-          eq(schema.scheduleTriggerRunsTable.triggerId, params.triggerId),
-        ),
-      )
+      .where(and(...conditions))
       .orderBy(desc(schema.scheduleTriggerRunsTable.createdAt))
       .$dynamic();
 

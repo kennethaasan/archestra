@@ -29,6 +29,7 @@ import {
   ScheduleTriggerConfigurationSchema,
   ScheduleTriggerConfigurationSchemaBase,
   SelectConversationSchema,
+  ScheduleTriggerRunStatusSchema,
   SelectScheduleTriggerRunSchema,
   SelectScheduleTriggerSchema,
   UuidIdSchema,
@@ -437,14 +438,21 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         description: "List runs for a scheduled agent trigger",
         tags: ["Schedule Triggers"],
         params: z.object({ id: UuidIdSchema }),
-        querystring: PaginationQuerySchema,
+        querystring: PaginationQuerySchema.extend({
+          status: ScheduleTriggerRunStatusSchema.optional(),
+        }),
         response: constructResponseSchema(
           createPaginatedResponseSchema(SelectScheduleTriggerRunSchema),
         ),
       },
     },
     async (
-      { params: { id }, query: { limit, offset }, user, organizationId },
+      {
+        params: { id },
+        query: { limit, offset, status },
+        user,
+        organizationId,
+      },
       reply,
     ) => {
       const trigger = await findAccessibleTriggerOrThrow({
@@ -459,10 +467,12 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
           triggerId: trigger.id,
           limit,
           offset,
+          status,
         }),
         ScheduleTriggerRunModel.countByTrigger({
           organizationId,
           triggerId: trigger.id,
+          status,
         }),
       ]);
 

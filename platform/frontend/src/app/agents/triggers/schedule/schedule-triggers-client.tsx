@@ -1731,15 +1731,20 @@ function ScheduleTriggerRunsTable({
   onTrackedRunSettled: (runId: string) => void;
 }) {
   const router = useRouter();
-  const { data: runsResponse, isLoading: runsLoading } = useScheduleTriggerRuns(
-    trigger.id,
-    {
-      limit: 20,
-      offset: 0,
+  const pageSize = 10;
+  const [pageIndex, setPageIndex] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<
+    ScheduleTriggerRunStatus | "all"
+  >("all");
+
+  const { data: runsResponse, isLoading: runsLoading } =
+    useScheduleTriggerRuns(trigger.id, {
+      limit: pageSize,
+      offset: pageIndex * pageSize,
+      status: statusFilter === "all" ? undefined : statusFilter,
       enabled: true,
       refetchInterval: trackedRunId ? 3_000 : false,
-    },
-  );
+    });
 
   const trackedRun =
     trackedRunId === null
@@ -1759,6 +1764,14 @@ function ScheduleTriggerRunsTable({
 
     onTrackedRunSettled(trackedRunId);
   }, [onTrackedRunSettled, runNowState.shouldClearTrackedRun, trackedRunId]);
+
+  const handleStatusFilterChange = useCallback(
+    (value: string) => {
+      setStatusFilter(value as ScheduleTriggerRunStatus | "all");
+      setPageIndex(0);
+    },
+    [],
+  );
 
   const columns = useMemo<ColumnDef<ScheduleTriggerRun>[]>(
     () => [
@@ -1803,9 +1816,11 @@ function ScheduleTriggerRunsTable({
     [],
   );
 
+  const hasActiveFilters = statusFilter !== "all";
+
   return (
     <section className="space-y-4">
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
           <h2 className="text-sm font-medium text-foreground">Run history</h2>
           <p className="text-sm text-muted-foreground/70">
@@ -1813,11 +1828,25 @@ function ScheduleTriggerRunsTable({
             chat.
           </p>
         </div>
-        {runNowState.isButtonSpinning && (
-          <span className="text-xs text-muted-foreground/60">
-            Refreshing active run
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {runNowState.isButtonSpinning && (
+            <span className="text-xs text-muted-foreground/60">
+              Refreshing active run
+            </span>
+          )}
+          <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
+            <SelectTrigger className="h-8 w-[130px] border-transparent bg-muted/30 text-xs shadow-none">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="success">Success</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+              <SelectItem value="running">Running</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <DataTable
@@ -1825,6 +1854,19 @@ function ScheduleTriggerRunsTable({
         data={runsResponse?.data ?? []}
         isLoading={runsLoading}
         emptyMessage="No runs recorded yet."
+        manualPagination
+        pagination={{
+          pageIndex,
+          pageSize,
+          total: runsResponse?.pagination.total ?? 0,
+        }}
+        onPaginationChange={(p) => setPageIndex(p.pageIndex)}
+        hasActiveFilters={hasActiveFilters}
+        filteredEmptyMessage="No runs match the selected status."
+        onClearFilters={() => {
+          setStatusFilter("all");
+          setPageIndex(0);
+        }}
         onRowClick={(run) => {
           if (run.chatConversationId) {
             router.push(

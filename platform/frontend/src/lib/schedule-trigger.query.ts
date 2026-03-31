@@ -83,8 +83,14 @@ export const scheduleTriggerKeys = {
     [...scheduleTriggerKeys.all, "list", params] as const,
   runsPrefix: (triggerId: string) =>
     [...scheduleTriggerKeys.all, triggerId, "runs"] as const,
-  runs: (triggerId: string, params: { limit?: number; offset?: number }) =>
-    [...scheduleTriggerKeys.runsPrefix(triggerId), params] as const,
+  runs: (
+    triggerId: string,
+    params: {
+      limit?: number;
+      offset?: number;
+      status?: ScheduleTriggerRunStatus;
+    },
+  ) => [...scheduleTriggerKeys.runsPrefix(triggerId), params] as const,
   run: (triggerId: string, runId: string) =>
     [...scheduleTriggerKeys.runsPrefix(triggerId), "detail", runId] as const,
   status: () => [...scheduleTriggerKeys.all, "status"] as const,
@@ -106,12 +112,14 @@ export function getScheduleTriggerListQueryParams(params?: {
 export function getScheduleTriggerRunsQueryParams(params?: {
   limit?: number;
   offset?: number;
+  status?: ScheduleTriggerRunStatus;
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
   return {
     limit: params?.limit,
     offset: params?.offset,
+    status: params?.status,
   };
 }
 
@@ -166,6 +174,7 @@ export function useScheduleTriggerRuns(
   params?: {
     limit?: number;
     offset?: number;
+    status?: ScheduleTriggerRunStatus;
     enabled?: boolean;
     refetchInterval?: number | false;
   },
@@ -174,6 +183,9 @@ export function useScheduleTriggerRuns(
   const query = new URLSearchParams();
   query.set("limit", String(queryParams.limit ?? 10));
   query.set("offset", String(queryParams.offset ?? 0));
+  if (queryParams.status) {
+    query.set("status", queryParams.status);
+  }
 
   return useQuery({
     queryKey: scheduleTriggerKeys.runs(triggerId ?? "", queryParams),
