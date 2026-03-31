@@ -382,11 +382,10 @@ class ScheduleTriggerModel {
         .onConflictDoNothing()
         .returning();
 
-      if (!createdRun) {
-        break;
+      if (createdRun) {
+        createdRuns.push(createdRun);
       }
 
-      createdRuns.push(createdRun);
       processedSlots += 1;
       nextDueAt = calculateNextDueAt({
         cronExpression: trigger.cronExpression,
@@ -422,37 +421,39 @@ class ScheduleTriggerModel {
     completedAt: Date;
     error: string | null;
   }): Promise<void> {
-    await db.transaction(async (tx) => {
-      if (params.status === "failed") {
-        await tx
-          .update(schema.scheduleTriggersTable)
-          .set({
-            lastRunAt: params.completedAt,
-            lastRunStatus: params.status,
-            lastError: params.error,
-            consecutiveFailures: sql`${schema.scheduleTriggersTable.consecutiveFailures} + 1`,
-          })
-          .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
-
-        await tx.execute(sql`
-          UPDATE schedule_triggers
-          SET enabled = false, next_due_at = NULL
-          WHERE id = ${params.triggerId}
-            AND consecutive_failures >= max_consecutive_failures
-            AND enabled = true
-        `);
-      } else {
-        await tx
-          .update(schema.scheduleTriggersTable)
-          .set({
-            lastRunAt: params.completedAt,
-            lastRunStatus: params.status,
-            lastError: params.error,
-            consecutiveFailures: 0,
-          })
-          .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
-      }
-    });
+    if (params.status === "failed") {
+      // Single atomic statement: increment consecutive_failures and auto-disable
+      // if the new count meets/exceeds the threshold, avoiding a race where two
+      // concurrent failures under the allow_all overlap policy could undercount.
+      await db.execute(sql`
+        UPDATE schedule_triggers
+        SET
+          last_run_at = ${params.completedAt},
+          last_run_status = ${params.status},
+          last_error = ${params.error},
+          consecutive_failures = consecutive_failures + 1,
+          enabled = CASE
+            WHEN consecutive_failures + 1 >= max_consecutive_failures THEN false
+            ELSE enabled
+          END,
+          next_due_at = CASE
+            WHEN consecutive_failures + 1 >= max_consecutive_failures THEN NULL
+            ELSE next_due_at
+          END,
+          updated_at = now()
+        WHERE id = ${params.triggerId}
+      `);
+    } else {
+      await db
+        .update(schema.scheduleTriggersTable)
+        .set({
+          lastRunAt: params.completedAt,
+          lastRunStatus: params.status,
+          lastError: params.error,
+          consecutiveFailures: 0,
+        })
+        .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
+    }
   }
 
   private static async lockDueTrigger(
@@ -533,20 +534,17 @@ function advancePastNow(params: {
   currentNextDueAt: Date;
   now: Date;
 }): Date | null {
-  let nextDueAt: Date | null = params.currentNextDueAt;
-  let iterations = 0;
-  const maxIterations = SCHEDULE_TRIGGERS_MAX_MISSED_SLOTS_PER_PASS;
-
-  while (nextDueAt && nextDueAt <= params.now && iterations < maxIterations) {
-    nextDueAt = calculateNextDueAt({
-      cronExpression: params.cronExpression,
-      timezone: params.timezone,
-      from: nextDueAt,
-    });
-    iterations += 1;
+  if (params.currentNextDueAt > params.now) {
+    return params.currentNextDueAt;
   }
 
-  return nextDueAt;
+  // Jump directly to the next slot after now, avoiding bounded iteration
+  // that could fail to advance past now for severely stale triggers.
+  return calculateNextDueAt({
+    cronExpression: params.cronExpression,
+    timezone: params.timezone,
+    from: params.now,
+  });
 }
 
 export default ScheduleTriggerModel;

@@ -636,6 +636,42 @@ async function ensureRunConversation(params: {
 }): Promise<z.infer<typeof SelectConversationSchema>> {
   const { run, userId, organizationId } = params;
 
+  // Read agent and LLM selection outside the advisory-lock transaction since
+  // they only read from the main pool and don't need transactional isolation.
+  const agent = await AgentModel.findById(run.agentIdSnapshot);
+  if (!agent || agent.organizationId !== organizationId) {
+    throw new ApiError(
+      400,
+      "The agent used for this run no longer exists or is unavailable",
+    );
+  }
+
+  const llmSelection = await resolveConversationLlmSelectionForAgent({
+    agent: {
+      llmApiKeyId: agent.llmApiKeyId ?? null,
+      llmModel: agent.llmModel ?? null,
+    },
+    organizationId,
+    userId,
+  });
+
+  const interactionResult = await InteractionModel.findAllPaginated(
+    { limit: 50, offset: 0 },
+    { sortBy: "createdAt", sortDirection: "desc" },
+    userId,
+    true,
+    {
+      profileId: run.agentIdSnapshot,
+      sessionId: getScheduleTriggerRunSessionId(run.id),
+    },
+  );
+  const output =
+    extractScheduleRunOutputFromInteractions(interactionResult.data) ??
+    getFallbackRunOutput(run);
+  const conversationTitle = buildRunConversationSeedTitle(
+    run.messageTemplateSnapshot,
+  );
+
   // Acquire a transaction-scoped advisory lock keyed on (runId, userId) to
   // prevent two concurrent requests from each creating a separate conversation
   // for the same run+user pair (which would orphan one conversation).
@@ -652,40 +688,6 @@ async function ensureRunConversation(params: {
         userId,
         txOrDb: tx,
       });
-
-    const agent = await AgentModel.findById(run.agentIdSnapshot);
-    if (!agent || agent.organizationId !== organizationId) {
-      throw new ApiError(
-        400,
-        "The agent used for this run no longer exists or is unavailable",
-      );
-    }
-
-    const llmSelection = await resolveConversationLlmSelectionForAgent({
-      agent: {
-        llmApiKeyId: agent.llmApiKeyId ?? null,
-        llmModel: agent.llmModel ?? null,
-      },
-      organizationId,
-      userId,
-    });
-
-    const interactionResult = await InteractionModel.findAllPaginated(
-      { limit: 50, offset: 0 },
-      { sortBy: "createdAt", sortDirection: "desc" },
-      userId,
-      true,
-      {
-        profileId: run.agentIdSnapshot,
-        sessionId: getScheduleTriggerRunSessionId(run.id),
-      },
-    );
-    const output =
-      extractScheduleRunOutputFromInteractions(interactionResult.data) ??
-      getFallbackRunOutput(run);
-    const conversationTitle = buildRunConversationSeedTitle(
-      run.messageTemplateSnapshot,
-    );
 
     const conversation = existingConversationId
       ? ((await ConversationModel.findById({
