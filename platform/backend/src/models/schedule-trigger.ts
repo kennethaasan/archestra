@@ -9,6 +9,7 @@ import {
   sql,
 } from "drizzle-orm";
 import db, { schema, type Transaction } from "@/database";
+import ScheduleTriggerRunModel from "@/models/schedule-trigger-run";
 import {
   calculateNextDueAt,
   calculateNextDueAtOnOrAfter,
@@ -20,6 +21,7 @@ import {
 import type {
   InsertScheduleTrigger,
   ScheduleTrigger,
+  ScheduleTriggerOverlapPolicy,
   ScheduleTriggerRun,
   ScheduleTriggerRunStatus,
   UpdateScheduleTrigger,
@@ -98,6 +100,10 @@ class ScheduleTriggerModel {
         timezone: schema.scheduleTriggersTable.timezone,
         enabled: schema.scheduleTriggersTable.enabled,
         actorUserId: schema.scheduleTriggersTable.actorUserId,
+        overlapPolicy: schema.scheduleTriggersTable.overlapPolicy,
+        consecutiveFailures: schema.scheduleTriggersTable.consecutiveFailures,
+        maxConsecutiveFailures:
+          schema.scheduleTriggersTable.maxConsecutiveFailures,
         nextDueAt: schema.scheduleTriggersTable.nextDueAt,
         lastRunAt: schema.scheduleTriggersTable.lastRunAt,
         lastRunStatus: schema.scheduleTriggersTable.lastRunStatus,
@@ -152,6 +158,10 @@ class ScheduleTriggerModel {
         timezone: schema.scheduleTriggersTable.timezone,
         enabled: schema.scheduleTriggersTable.enabled,
         actorUserId: schema.scheduleTriggersTable.actorUserId,
+        overlapPolicy: schema.scheduleTriggersTable.overlapPolicy,
+        consecutiveFailures: schema.scheduleTriggersTable.consecutiveFailures,
+        maxConsecutiveFailures:
+          schema.scheduleTriggersTable.maxConsecutiveFailures,
         nextDueAt: schema.scheduleTriggersTable.nextDueAt,
         lastRunAt: schema.scheduleTriggersTable.lastRunAt,
         lastRunStatus: schema.scheduleTriggersTable.lastRunStatus,
@@ -282,6 +292,45 @@ class ScheduleTriggerModel {
       return [];
     }
 
+    const overlapPolicy = trigger.overlapPolicy ?? "allow_all";
+
+    if (overlapPolicy === "skip" || overlapPolicy === "buffer_one") {
+      const activeCount =
+        await ScheduleTriggerRunModel.countActiveRunsForTrigger(trigger.id, tx);
+
+      if (overlapPolicy === "skip" && activeCount > 0) {
+        const advancedNextDueAt = advancePastNow({
+          cronExpression: trigger.cronExpression,
+          timezone: trigger.timezone,
+          currentNextDueAt: trigger.nextDueAt,
+          now: params.now,
+        });
+
+        await tx
+          .update(schema.scheduleTriggersTable)
+          .set({ nextDueAt: advancedNextDueAt })
+          .where(eq(schema.scheduleTriggersTable.id, trigger.id));
+
+        return [];
+      }
+
+      if (overlapPolicy === "buffer_one" && activeCount >= 2) {
+        const advancedNextDueAt = advancePastNow({
+          cronExpression: trigger.cronExpression,
+          timezone: trigger.timezone,
+          currentNextDueAt: trigger.nextDueAt,
+          now: params.now,
+        });
+
+        await tx
+          .update(schema.scheduleTriggersTable)
+          .set({ nextDueAt: advancedNextDueAt })
+          .where(eq(schema.scheduleTriggersTable.id, trigger.id));
+
+        return [];
+      }
+    }
+
     const maxMissedSlotsPerPass =
       params.maxMissedSlotsPerPass ??
       SCHEDULE_TRIGGERS_MAX_MISSED_SLOTS_PER_PASS;
@@ -302,11 +351,19 @@ class ScheduleTriggerModel {
       nextDueAt = clamped;
     }
 
+    const maxRunsToCreate =
+      overlapPolicy === "buffer_one"
+        ? 1
+        : overlapPolicy === "skip"
+          ? 1
+          : maxMissedSlotsPerPass;
+
     let processedSlots = 0;
     while (
       nextDueAt &&
       nextDueAt <= params.now &&
-      processedSlots < maxMissedSlotsPerPass
+      processedSlots < maxMissedSlotsPerPass &&
+      createdRuns.length < maxRunsToCreate
     ) {
       const [createdRun] = await tx
         .insert(schema.scheduleTriggerRunsTable)
@@ -338,6 +395,19 @@ class ScheduleTriggerModel {
       });
     }
 
+    while (
+      nextDueAt &&
+      nextDueAt <= params.now &&
+      processedSlots < maxMissedSlotsPerPass
+    ) {
+      processedSlots += 1;
+      nextDueAt = calculateNextDueAt({
+        cronExpression: trigger.cronExpression,
+        timezone: trigger.timezone,
+        from: nextDueAt,
+      });
+    }
+
     await tx
       .update(schema.scheduleTriggersTable)
       .set({ nextDueAt })
@@ -352,14 +422,35 @@ class ScheduleTriggerModel {
     completedAt: Date;
     error: string | null;
   }): Promise<void> {
-    await db
-      .update(schema.scheduleTriggersTable)
-      .set({
-        lastRunAt: params.completedAt,
-        lastRunStatus: params.status,
-        lastError: params.error,
-      })
-      .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
+    if (params.status === "failed") {
+      await db
+        .update(schema.scheduleTriggersTable)
+        .set({
+          lastRunAt: params.completedAt,
+          lastRunStatus: params.status,
+          lastError: params.error,
+          consecutiveFailures: sql`${schema.scheduleTriggersTable.consecutiveFailures} + 1`,
+        })
+        .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
+
+      await db.execute(sql`
+        UPDATE schedule_triggers
+        SET enabled = false, next_due_at = NULL
+        WHERE id = ${params.triggerId}
+          AND consecutive_failures >= max_consecutive_failures
+          AND enabled = true
+      `);
+    } else {
+      await db
+        .update(schema.scheduleTriggersTable)
+        .set({
+          lastRunAt: params.completedAt,
+          lastRunStatus: params.status,
+          lastError: params.error,
+          consecutiveFailures: 0,
+        })
+        .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
+    }
   }
 
   private static async lockDueTrigger(
@@ -375,6 +466,7 @@ class ScheduleTriggerModel {
         messageTemplate: string;
         cronExpression: string;
         timezone: string;
+        overlapPolicy: ScheduleTriggerOverlapPolicy;
         nextDueAt: Date | null;
       }
     | undefined
@@ -387,6 +479,7 @@ class ScheduleTriggerModel {
       messageTemplate: string;
       cronExpression: string;
       timezone: string;
+      overlapPolicy: ScheduleTriggerOverlapPolicy;
       nextDueAt: Date | null;
     }>(sql`
       SELECT
@@ -397,6 +490,7 @@ class ScheduleTriggerModel {
         message_template AS "messageTemplate",
         cron_expression AS "cronExpression",
         timezone,
+        overlap_policy AS "overlapPolicy",
         next_due_at AS "nextDueAt"
       FROM schedule_triggers
       WHERE id = ${triggerId}
@@ -412,6 +506,7 @@ class ScheduleTriggerModel {
 
     return {
       ...row,
+      overlapPolicy: row.overlapPolicy ?? "allow_all",
       nextDueAt: normalizeDatabaseDate(row.nextDueAt),
     };
   }
@@ -428,6 +523,28 @@ function normalizeDatabaseDate(value: Date | string | null): Date | null {
 
   const hasExplicitTimezone = /(?:[zZ]|[+-]\d{2}(?::?\d{2})?)$/.test(value);
   return new Date(hasExplicitTimezone ? value : `${value}Z`);
+}
+
+function advancePastNow(params: {
+  cronExpression: string;
+  timezone: string;
+  currentNextDueAt: Date;
+  now: Date;
+}): Date | null {
+  let nextDueAt: Date | null = params.currentNextDueAt;
+  let iterations = 0;
+  const maxIterations = SCHEDULE_TRIGGERS_MAX_MISSED_SLOTS_PER_PASS;
+
+  while (nextDueAt && nextDueAt <= params.now && iterations < maxIterations) {
+    nextDueAt = calculateNextDueAt({
+      cronExpression: params.cronExpression,
+      timezone: params.timezone,
+      from: nextDueAt,
+    });
+    iterations += 1;
+  }
+
+  return nextDueAt;
 }
 
 export default ScheduleTriggerModel;

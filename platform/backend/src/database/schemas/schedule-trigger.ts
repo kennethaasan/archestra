@@ -1,12 +1,14 @@
 import {
   boolean,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
 import type {
+  ScheduleTriggerOverlapPolicy,
   ScheduleTriggerRunStatus,
   ScheduleTriggerScheduleKind,
 } from "@/types/schedule-trigger";
@@ -27,6 +29,14 @@ const scheduleTriggersTable = pgTable(
     timezone: text("timezone").notNull(),
     enabled: boolean("enabled").notNull().default(true),
     actorUserId: text("actor_user_id").notNull(),
+    overlapPolicy: text("overlap_policy")
+      .$type<ScheduleTriggerOverlapPolicy>()
+      .notNull()
+      .default("allow_all"),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    maxConsecutiveFailures: integer("max_consecutive_failures")
+      .notNull()
+      .default(5),
     nextDueAt: timestamp("next_due_at", { mode: "date" }),
     lastRunAt: timestamp("last_run_at", { mode: "date" }),
     lastRunStatus: text("last_run_status").$type<ScheduleTriggerRunStatus>(),

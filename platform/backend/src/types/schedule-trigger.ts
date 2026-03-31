@@ -17,6 +17,15 @@ export type ScheduleTriggerScheduleKind = z.infer<
   typeof ScheduleTriggerScheduleKindSchema
 >;
 
+export const ScheduleTriggerOverlapPolicySchema = z.enum([
+  "skip",
+  "buffer_one",
+  "allow_all",
+]);
+export type ScheduleTriggerOverlapPolicy = z.infer<
+  typeof ScheduleTriggerOverlapPolicySchema
+>;
+
 export const ScheduleTriggerRunKindSchema = z.enum(["due", "manual"]);
 export type ScheduleTriggerRunKind = z.infer<
   typeof ScheduleTriggerRunKindSchema
@@ -113,11 +122,13 @@ function validateScheduleTriggerFields(
 const selectTriggerExtendedFields = {
   scheduleKind: ScheduleTriggerScheduleKindSchema,
   lastRunStatus: ScheduleTriggerRunStatusSchema.nullable(),
+  overlapPolicy: ScheduleTriggerOverlapPolicySchema,
 };
 
 const insertTriggerExtendedFields = {
   scheduleKind: ScheduleTriggerScheduleKindSchema.optional(),
   lastRunStatus: ScheduleTriggerRunStatusSchema.nullable().optional(),
+  overlapPolicy: ScheduleTriggerOverlapPolicySchema.optional(),
 };
 
 export const SelectScheduleTriggerSchema = createSelectSchema(

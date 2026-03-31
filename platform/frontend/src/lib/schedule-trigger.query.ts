@@ -11,6 +11,8 @@ export type ScheduleTriggerRunStatus =
 
 export type ScheduleTriggerRunKind = "due" | "manual";
 
+export type ScheduleTriggerOverlapPolicy = "skip" | "buffer_one" | "allow_all";
+
 export type ScheduleTrigger = {
   id: string;
   organizationId: string;
@@ -22,6 +24,9 @@ export type ScheduleTrigger = {
   timezone: string;
   enabled: boolean;
   actorUserId: string;
+  overlapPolicy: ScheduleTriggerOverlapPolicy;
+  consecutiveFailures: number;
+  maxConsecutiveFailures: number;
   nextDueAt: string | null;
   lastRunAt: string | null;
   lastRunStatus: ScheduleTriggerRunStatus | null;
@@ -73,6 +78,8 @@ type ScheduleTriggerRequestBody = {
   timezone: string;
   messageTemplate: string;
   enabled?: boolean;
+  overlapPolicy?: ScheduleTriggerOverlapPolicy;
+  maxConsecutiveFailures?: number;
 };
 
 export const scheduleTriggerKeys = {

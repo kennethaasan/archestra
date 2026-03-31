@@ -7,6 +7,48 @@ import type {
 } from "@/types";
 
 class ScheduleTriggerRunModel {
+  static async hasActiveRunsForTrigger(
+    triggerId: string,
+    txOrDb?: Transaction | typeof db,
+  ): Promise<boolean> {
+    const executor = txOrDb ?? db;
+    const [result] = await executor
+      .select({ count: count() })
+      .from(schema.scheduleTriggerRunsTable)
+      .where(
+        and(
+          eq(schema.scheduleTriggerRunsTable.triggerId, triggerId),
+          or(
+            eq(schema.scheduleTriggerRunsTable.status, "pending"),
+            eq(schema.scheduleTriggerRunsTable.status, "running"),
+          ),
+        ),
+      );
+
+    return (result?.count ?? 0) > 0;
+  }
+
+  static async countActiveRunsForTrigger(
+    triggerId: string,
+    txOrDb?: Transaction | typeof db,
+  ): Promise<number> {
+    const executor = txOrDb ?? db;
+    const [result] = await executor
+      .select({ count: count() })
+      .from(schema.scheduleTriggerRunsTable)
+      .where(
+        and(
+          eq(schema.scheduleTriggerRunsTable.triggerId, triggerId),
+          or(
+            eq(schema.scheduleTriggerRunsTable.status, "pending"),
+            eq(schema.scheduleTriggerRunsTable.status, "running"),
+          ),
+        ),
+      );
+
+    return result?.count ?? 0;
+  }
+
   static async createManualRun(params: {
     trigger: ScheduleTrigger;
     initiatedByUserId: string;
@@ -39,10 +81,7 @@ class ScheduleTriggerRunModel {
     status?: ScheduleTriggerRunStatus;
   }): Promise<number> {
     const conditions = [
-      eq(
-        schema.scheduleTriggerRunsTable.organizationId,
-        params.organizationId,
-      ),
+      eq(schema.scheduleTriggerRunsTable.organizationId, params.organizationId),
       eq(schema.scheduleTriggerRunsTable.triggerId, params.triggerId),
     ];
 
@@ -68,10 +107,7 @@ class ScheduleTriggerRunModel {
     status?: ScheduleTriggerRunStatus;
   }): Promise<ScheduleTriggerRun[]> {
     const conditions = [
-      eq(
-        schema.scheduleTriggerRunsTable.organizationId,
-        params.organizationId,
-      ),
+      eq(schema.scheduleTriggerRunsTable.organizationId, params.organizationId),
       eq(schema.scheduleTriggerRunsTable.triggerId, params.triggerId),
     ];
 

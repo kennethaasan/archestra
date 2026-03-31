@@ -1401,6 +1401,13 @@
       "when": 1774389404082,
       "tag": "0199_slippery_blazing_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 200,
+      "version": "7",
+      "when": 1774980613024,
+      "tag": "0200_schedule-trigger-overlap-and-pause",
+      "breakpoints": true
     }
   ]
 }

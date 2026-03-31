@@ -1,6 +1,7 @@
 import type { UseMutationResult } from "@tanstack/react-query";
 import type {
   ScheduleTrigger,
+  ScheduleTriggerOverlapPolicy,
   ScheduleTriggerRunStatus,
 } from "@/lib/schedule-trigger.query";
 
@@ -16,6 +17,8 @@ export type ScheduleTriggerFormState = {
   cronExpression: string;
   timezone: string;
   messageTemplate: string;
+  overlapPolicy: ScheduleTriggerOverlapPolicy;
+  maxConsecutiveFailures: number;
 };
 
 export const DEFAULT_FORM_STATE = (): ScheduleTriggerFormState => ({
@@ -24,6 +27,8 @@ export const DEFAULT_FORM_STATE = (): ScheduleTriggerFormState => ({
   cronExpression: "0 9 * * 1-5",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   messageTemplate: "",
+  overlapPolicy: "allow_all",
+  maxConsecutiveFailures: 5,
 });
 
 export function buildScheduleTriggerPayload(
@@ -35,6 +40,8 @@ export function buildScheduleTriggerPayload(
     cronExpression: formState.cronExpression.trim(),
     timezone: formState.timezone.trim(),
     messageTemplate: formState.messageTemplate.trim(),
+    overlapPolicy: formState.overlapPolicy,
+    maxConsecutiveFailures: formState.maxConsecutiveFailures,
   };
 
   if (

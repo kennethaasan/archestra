@@ -28,8 +28,9 @@ import {
   type Message,
   ScheduleTriggerConfigurationSchema,
   ScheduleTriggerConfigurationSchemaBase,
-  SelectConversationSchema,
+  ScheduleTriggerOverlapPolicySchema,
   ScheduleTriggerRunStatusSchema,
+  SelectConversationSchema,
   SelectScheduleTriggerRunSchema,
   SelectScheduleTriggerSchema,
   UuidIdSchema,
@@ -39,6 +40,8 @@ const ScheduleTriggerBodyFieldsSchema = z.object({
   name: z.string().min(1),
   agentId: UuidIdSchema,
   enabled: z.boolean().optional().default(true),
+  overlapPolicy: ScheduleTriggerOverlapPolicySchema.optional(),
+  maxConsecutiveFailures: z.number().int().min(1).max(100).optional(),
   ...ScheduleTriggerConfigurationSchemaBase.shape,
 });
 
@@ -184,6 +187,8 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         timezone: body.timezone,
         enabled: body.enabled ?? true,
         actorUserId: user.id,
+        overlapPolicy: body.overlapPolicy ?? "allow_all",
+        maxConsecutiveFailures: body.maxConsecutiveFailures ?? 5,
         nextDueAt:
           (body.enabled ?? true)
             ? calculateNextDueAt({
@@ -346,6 +351,7 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
       const updated = await ScheduleTriggerModel.update(id, {
         enabled: true,
         actorUserId: user.id,
+        consecutiveFailures: 0,
         nextDueAt: calculateNextDueAt({
           cronExpression: trigger.cronExpression,
           timezone: trigger.timezone,

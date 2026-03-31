@@ -50,6 +50,7 @@ import { useHasPermissions } from "@/lib/auth/auth.query";
 import { useGenerateConversationTitle } from "@/lib/chat/chat.query";
 import {
   type ScheduleTrigger,
+  type ScheduleTriggerOverlapPolicy,
   type ScheduleTriggerRun,
   type ScheduleTriggerRunStatus,
   useCreateScheduleTrigger,
@@ -275,6 +276,8 @@ export function ScheduleTriggersIndexPage() {
       cronExpression: trigger.cronExpression,
       timezone: trigger.timezone,
       messageTemplate: trigger.messageTemplate,
+      overlapPolicy: trigger.overlapPolicy ?? "allow_all",
+      maxConsecutiveFailures: trigger.maxConsecutiveFailures ?? 5,
     });
   }, []);
 
@@ -692,6 +695,8 @@ export function ScheduleTriggerDetailPage({
       cronExpression: trigger.cronExpression,
       timezone: trigger.timezone,
       messageTemplate: trigger.messageTemplate,
+      overlapPolicy: trigger.overlapPolicy ?? "allow_all",
+      maxConsecutiveFailures: trigger.maxConsecutiveFailures ?? 5,
     });
   }, [trigger]);
 
@@ -811,6 +816,8 @@ export function ScheduleTriggerDetailPage({
       cronExpression: trigger.cronExpression,
       timezone: trigger.timezone,
       messageTemplate: trigger.messageTemplate,
+      overlapPolicy: trigger.overlapPolicy ?? "allow_all",
+      maxConsecutiveFailures: trigger.maxConsecutiveFailures ?? 5,
     });
     setEditing(false);
   };
@@ -1020,6 +1027,56 @@ export function ScheduleTriggerDetailPage({
                       />
                     }
                   />
+                  <SettingsPanelRow
+                    label="Overlap policy"
+                    description="What to do when a previous run is still active"
+                    control={
+                      <Select
+                        value={formState.overlapPolicy}
+                        onValueChange={(value: ScheduleTriggerOverlapPolicy) =>
+                          setFormState((current) => ({
+                            ...current,
+                            overlapPolicy: value,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-9 w-[240px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="allow_all">
+                            Allow all (no limit)
+                          </SelectItem>
+                          <SelectItem value="skip">
+                            Skip (wait for current)
+                          </SelectItem>
+                          <SelectItem value="buffer_one">
+                            Buffer one (queue at most 1)
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    }
+                  />
+                  <SettingsPanelRow
+                    label="Auto-pause threshold"
+                    description="Disable after this many consecutive failures"
+                    control={
+                      <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={formState.maxConsecutiveFailures}
+                        onChange={(event) =>
+                          setFormState((current) => ({
+                            ...current,
+                            maxConsecutiveFailures:
+                              Number.parseInt(event.target.value, 10) || 5,
+                          }))
+                        }
+                        className="h-9 w-[240px]"
+                      />
+                    }
+                  />
                 </div>
               </section>
 
@@ -1063,6 +1120,22 @@ export function ScheduleTriggerDetailPage({
                 </Alert>
               )}
 
+              {!trigger.enabled &&
+                trigger.consecutiveFailures >=
+                  trigger.maxConsecutiveFailures && (
+                  <Alert className="border-0 bg-amber-500/10">
+                    <AlertCircle className="h-4 w-4 text-amber-400" />
+                    <AlertTitle>Auto-paused due to failures</AlertTitle>
+                    <AlertDescription>
+                      This trigger was automatically disabled after{" "}
+                      {trigger.consecutiveFailures} consecutive failures
+                      (threshold: {trigger.maxConsecutiveFailures}). Re-enable
+                      to resume scheduled runs. The failure counter will reset
+                      on re-enable.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
               <section className="overflow-hidden rounded-xl border border-border/60 bg-card">
                 <div className="divide-y divide-border/60">
                   <SettingsPanelRow
@@ -1102,6 +1175,24 @@ export function ScheduleTriggerDetailPage({
                         onCheckedChange={toggleScheduleEnabled}
                         disabled={isTogglePending || !canUpdateTrigger}
                         aria-label="Toggle schedule enabled"
+                      />
+                    }
+                  />
+                  <SettingsPanelRow
+                    label="Overlap policy"
+                    description="What to do when a previous run is still active"
+                    control={
+                      <ReadonlySettingValue
+                        value={formatOverlapPolicy(trigger.overlapPolicy)}
+                      />
+                    }
+                  />
+                  <SettingsPanelRow
+                    label="Auto-pause threshold"
+                    description="Disable after this many consecutive failures"
+                    control={
+                      <ReadonlySettingValue
+                        value={String(trigger.maxConsecutiveFailures)}
                       />
                     }
                   />
@@ -1458,6 +1549,19 @@ function truncateText(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 1)}…`;
 }
 
+function formatOverlapPolicy(
+  policy: ScheduleTriggerOverlapPolicy | undefined,
+): string {
+  switch (policy) {
+    case "skip":
+      return "Skip (wait for current)";
+    case "buffer_one":
+      return "Buffer one (queue at most 1)";
+    default:
+      return "Allow all (no limit)";
+  }
+}
+
 function ScheduleTriggerCreateButton({
   hasAgents,
   onClick,
@@ -1737,14 +1841,16 @@ function ScheduleTriggerRunsTable({
     ScheduleTriggerRunStatus | "all"
   >("all");
 
-  const { data: runsResponse, isLoading: runsLoading } =
-    useScheduleTriggerRuns(trigger.id, {
+  const { data: runsResponse, isLoading: runsLoading } = useScheduleTriggerRuns(
+    trigger.id,
+    {
       limit: pageSize,
       offset: pageIndex * pageSize,
       status: statusFilter === "all" ? undefined : statusFilter,
       enabled: true,
       refetchInterval: trackedRunId ? 3_000 : false,
-    });
+    },
+  );
 
   const trackedRun =
     trackedRunId === null
@@ -1765,13 +1871,10 @@ function ScheduleTriggerRunsTable({
     onTrackedRunSettled(trackedRunId);
   }, [onTrackedRunSettled, runNowState.shouldClearTrackedRun, trackedRunId]);
 
-  const handleStatusFilterChange = useCallback(
-    (value: string) => {
-      setStatusFilter(value as ScheduleTriggerRunStatus | "all");
-      setPageIndex(0);
-    },
-    [],
-  );
+  const handleStatusFilterChange = useCallback((value: string) => {
+    setStatusFilter(value as ScheduleTriggerRunStatus | "all");
+    setPageIndex(0);
+  }, []);
 
   const columns = useMemo<ColumnDef<ScheduleTriggerRun>[]>(
     () => [
