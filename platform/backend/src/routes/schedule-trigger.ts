@@ -650,6 +650,7 @@ async function ensureRunConversation(params: {
       await ScheduleTriggerRunConversationModel.findConversationIdForUser({
         runId: run.id,
         userId,
+        txOrDb: tx,
       });
 
     const agent = await AgentModel.findById(run.agentIdSnapshot);
@@ -749,6 +750,7 @@ async function ensureRunConversation(params: {
         runId: run.id,
         userId,
         chatConversationId: conversation.id,
+        txOrDb: tx,
       });
     }
 
