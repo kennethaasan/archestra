@@ -1,9 +1,11 @@
 import {
   calculatePaginationMeta,
   createPaginatedResponseSchema,
+  extractScheduleRunOutputFromInteractions,
   PaginationQuerySchema,
   RouteId,
 } from "@shared";
+import { sql } from "drizzle-orm";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { hasAnyAgentTypeAdminPermission } from "@/auth";
@@ -613,122 +615,133 @@ async function ensureRunConversation(params: {
 }): Promise<z.infer<typeof SelectConversationSchema>> {
   const { run, userId, organizationId } = params;
 
-  const existingConversationId =
-    await ScheduleTriggerRunConversationModel.findConversationIdForUser({
-      runId: run.id,
-      userId,
-    });
-
-  const agent = await AgentModel.findById(run.agentIdSnapshot);
-  if (!agent || agent.organizationId !== organizationId) {
-    throw new ApiError(
-      400,
-      "The agent used for this run no longer exists or is unavailable",
+  // Acquire a transaction-scoped advisory lock keyed on (runId, userId) to
+  // prevent two concurrent requests from each creating a separate conversation
+  // for the same run+user pair (which would orphan one conversation).
+  return await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${run.id} || ':' || ${userId}))`,
     );
-  }
 
-  const llmSelection = await resolveConversationLlmSelectionForAgent({
-    agent: {
-      llmApiKeyId: agent.llmApiKeyId ?? null,
-      llmModel: agent.llmModel ?? null,
-    },
-    organizationId,
-    userId,
-  });
-
-  const interactionResult = await InteractionModel.findAllPaginated(
-    { limit: 50, offset: 0 },
-    { sortBy: "createdAt", sortDirection: "desc" },
-    userId,
-    true,
-    {
-      profileId: run.agentIdSnapshot,
-      sessionId: getScheduleTriggerRunSessionId(run.id),
-    },
-  );
-  const output =
-    extractScheduleRunOutputFromInteractions(interactionResult.data) ??
-    getFallbackRunOutput(run);
-  const conversationTitle = buildRunConversationSeedTitle(
-    run.messageTemplateSnapshot,
-  );
-
-  const conversation = existingConversationId
-    ? ((await ConversationModel.findById({
-        id: existingConversationId,
+    // Re-read after acquiring the lock so we see any conversation created by
+    // a concurrent request that committed before we acquired the lock.
+    const existingConversationId =
+      await ScheduleTriggerRunConversationModel.findConversationIdForUser({
+        runId: run.id,
         userId,
-        organizationId,
-      })) ??
-      (await ConversationModel.create({
-        userId,
-        organizationId,
-        agentId: run.agentIdSnapshot,
-        title: conversationTitle,
-        selectedModel: llmSelection.selectedModel,
-        selectedProvider: llmSelection.selectedProvider,
-        chatApiKeyId: llmSelection.chatApiKeyId,
-      })))
-    : await ConversationModel.create({
-        userId,
-        organizationId,
-        agentId: run.agentIdSnapshot,
-        title: conversationTitle,
-        selectedModel: llmSelection.selectedModel,
-        selectedProvider: llmSelection.selectedProvider,
-        chatApiKeyId: llmSelection.chatApiKeyId,
       });
 
-  const conversationMessages = await MessageModel.findByConversation(
-    conversation.id,
-  );
+    const agent = await AgentModel.findById(run.agentIdSnapshot);
+    if (!agent || agent.organizationId !== organizationId) {
+      throw new ApiError(
+        400,
+        "The agent used for this run no longer exists or is unavailable",
+      );
+    }
 
-  if (conversationMessages.length === 0) {
-    const messages = buildRunSeedMessages({
-      prompt: run.messageTemplateSnapshot,
-      output,
-    });
-    const createdAt = Date.now();
-
-    await MessageModel.bulkCreate(
-      messages.map((message, index) => ({
-        conversationId: conversation.id,
-        role: message.role,
-        content: message,
-        createdAt: new Date(createdAt + index),
-      })),
-    );
-  } else if (
-    shouldUpdateSeededRunAssistantMessage({
-      messages: conversationMessages,
-      prompt: run.messageTemplateSnapshot,
-      latestOutput: output,
-    })
-  ) {
-    await MessageModel.updateTextPart(
-      conversationMessages[1].id,
-      0,
-      output.trim(),
-    );
-  }
-
-  if (existingConversationId !== conversation.id) {
-    await ScheduleTriggerRunConversationModel.upsert({
-      runId: run.id,
+    const llmSelection = await resolveConversationLlmSelectionForAgent({
+      agent: {
+        llmApiKeyId: agent.llmApiKeyId ?? null,
+        llmModel: agent.llmModel ?? null,
+      },
+      organizationId,
       userId,
-      chatConversationId: conversation.id,
     });
-  }
 
-  const refreshedConversation = await ConversationModel.findById({
-    id: conversation.id,
-    userId,
-    organizationId,
+    const interactionResult = await InteractionModel.findAllPaginated(
+      { limit: 50, offset: 0 },
+      { sortBy: "createdAt", sortDirection: "desc" },
+      userId,
+      true,
+      {
+        profileId: run.agentIdSnapshot,
+        sessionId: getScheduleTriggerRunSessionId(run.id),
+      },
+    );
+    const output =
+      extractScheduleRunOutputFromInteractions(interactionResult.data) ??
+      getFallbackRunOutput(run);
+    const conversationTitle = buildRunConversationSeedTitle(
+      run.messageTemplateSnapshot,
+    );
+
+    const conversation = existingConversationId
+      ? ((await ConversationModel.findById({
+          id: existingConversationId,
+          userId,
+          organizationId,
+        })) ??
+        (await ConversationModel.create({
+          userId,
+          organizationId,
+          agentId: run.agentIdSnapshot,
+          title: conversationTitle,
+          selectedModel: llmSelection.selectedModel,
+          selectedProvider: llmSelection.selectedProvider,
+          chatApiKeyId: llmSelection.chatApiKeyId,
+        })))
+      : await ConversationModel.create({
+          userId,
+          organizationId,
+          agentId: run.agentIdSnapshot,
+          title: conversationTitle,
+          selectedModel: llmSelection.selectedModel,
+          selectedProvider: llmSelection.selectedProvider,
+          chatApiKeyId: llmSelection.chatApiKeyId,
+        });
+
+    const conversationMessages = await MessageModel.findByConversation(
+      conversation.id,
+    );
+
+    if (conversationMessages.length === 0) {
+      const messages = buildRunSeedMessages({
+        prompt: run.messageTemplateSnapshot,
+        output,
+      });
+      const createdAt = Date.now();
+
+      await MessageModel.bulkCreate(
+        messages.map((message, index) => ({
+          conversationId: conversation.id,
+          role: message.role,
+          content: message,
+          createdAt: new Date(createdAt + index),
+        })),
+      );
+    } else if (
+      shouldUpdateSeededRunAssistantMessage({
+        messages: conversationMessages,
+        prompt: run.messageTemplateSnapshot,
+        latestOutput: output,
+      })
+    ) {
+      await MessageModel.updateTextPart(
+        conversationMessages[1].id,
+        0,
+        output.trim(),
+      );
+    }
+
+    if (existingConversationId !== conversation.id) {
+      await ScheduleTriggerRunConversationModel.upsert({
+        runId: run.id,
+        userId,
+        chatConversationId: conversation.id,
+      });
+    }
+
+    const refreshedConversation = await ConversationModel.findById({
+      id: conversation.id,
+      userId,
+      organizationId,
+    });
+    if (!refreshedConversation) {
+      throw new ApiError(500, "Failed to load the run conversation");
+    }
+
+    return refreshedConversation;
   });
-  if (!refreshedConversation) {
-    throw new ApiError(500, "Failed to load the run conversation");
-  }
-
-  return refreshedConversation;
 }
 
 function shouldUpdateSeededRunAssistantMessage(params: {
@@ -833,83 +846,6 @@ function getFallbackRunOutput(
   }
 
   return RUN_OUTPUT_EMPTY_PLACEHOLDER;
-}
-
-function extractScheduleRunOutputFromInteractions(
-  interactions: Array<{ response?: unknown }>,
-): string | null {
-  for (const interaction of interactions) {
-    const output = extractTextFromInteractionResponse(interaction.response);
-    if (output) {
-      return output;
-    }
-  }
-
-  return null;
-}
-
-function extractTextFromInteractionResponse(response: unknown): string | null {
-  if (!response || typeof response !== "object") {
-    return null;
-  }
-
-  const candidateResponse = response as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> };
-    }>;
-    choices?: Array<{
-      message?: {
-        content?:
-          | string
-          | Array<{ type?: string; text?: string; refusal?: string }>;
-      };
-    }>;
-    content?: Array<{ type?: string; text?: string }>;
-  };
-
-  const geminiText = candidateResponse.candidates
-    ?.flatMap((candidate) => candidate.content?.parts ?? [])
-    .map((part) => part.text?.trim())
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-  if (geminiText) {
-    return geminiText;
-  }
-
-  const openAiText = candidateResponse.choices
-    ?.flatMap((choice) => {
-      const content = choice.message?.content;
-      if (typeof content === "string") {
-        return [content.trim()];
-      }
-
-      return (content ?? []).flatMap((part) =>
-        part.type === "text" || part.type === "output_text"
-          ? [part.text?.trim()]
-          : part.type === "refusal"
-            ? [part.refusal?.trim()]
-            : [],
-      );
-    })
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-  if (openAiText) {
-    return openAiText;
-  }
-
-  const anthropicText = candidateResponse.content
-    ?.flatMap((part) =>
-      part.type === "text" || part.type === "output_text"
-        ? [part.text?.trim()]
-        : [],
-    )
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-
-  return anthropicText || null;
 }
 
 const RUN_OUTPUT_FAILED_PREFIX = "This scheduled run failed.";

@@ -12,6 +12,8 @@ import type {
   ScheduleTriggerRunStatus,
   ScheduleTriggerScheduleKind,
 } from "@/types/schedule-trigger";
+import agentsTable from "./agent";
+import usersTable from "./user";
 
 const scheduleTriggersTable = pgTable(
   "schedule_triggers",
@@ -19,7 +21,9 @@ const scheduleTriggersTable = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     organizationId: text("organization_id").notNull(),
     name: text("name").notNull(),
-    agentId: uuid("agent_id").notNull(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agentsTable.id, { onDelete: "cascade" }),
     messageTemplate: text("message_template").notNull(),
     scheduleKind: text("schedule_kind")
       .$type<ScheduleTriggerScheduleKind>()
@@ -28,7 +32,9 @@ const scheduleTriggersTable = pgTable(
     cronExpression: text("cron_expression").notNull(),
     timezone: text("timezone").notNull(),
     enabled: boolean("enabled").notNull().default(true),
-    actorUserId: text("actor_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
     overlapPolicy: text("overlap_policy")
       .$type<ScheduleTriggerOverlapPolicy>()
       .notNull()
@@ -37,8 +43,8 @@ const scheduleTriggersTable = pgTable(
     maxConsecutiveFailures: integer("max_consecutive_failures")
       .notNull()
       .default(5),
-    nextDueAt: timestamp("next_due_at", { mode: "date" }),
-    lastRunAt: timestamp("last_run_at", { mode: "date" }),
+    nextDueAt: timestamp("next_due_at", { withTimezone: true, mode: "date" }),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true, mode: "date" }),
     lastRunStatus: text("last_run_status").$type<ScheduleTriggerRunStatus>(),
     lastError: text("last_error"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),

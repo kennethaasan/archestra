@@ -7,6 +7,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import conversationsTable from "./conversation";
+import scheduleTriggersTable from "./schedule-trigger";
 import type {
   ScheduleTriggerRunKind,
   ScheduleTriggerRunStatus,
@@ -17,13 +18,15 @@ const scheduleTriggerRunsTable = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     organizationId: text("organization_id").notNull(),
-    triggerId: uuid("trigger_id").notNull(),
+    triggerId: uuid("trigger_id")
+      .notNull()
+      .references(() => scheduleTriggersTable.id, { onDelete: "cascade" }),
     runKind: text("run_kind").$type<ScheduleTriggerRunKind>().notNull(),
     status: text("status")
       .$type<ScheduleTriggerRunStatus>()
       .notNull()
       .default("pending"),
-    dueAt: timestamp("due_at", { mode: "date" }),
+    dueAt: timestamp("due_at", { withTimezone: true, mode: "date" }),
     initiatedByUserId: text("initiated_by_user_id"),
     agentIdSnapshot: uuid("agent_id_snapshot").notNull(),
     messageTemplateSnapshot: text("message_template_snapshot").notNull(),
@@ -34,8 +37,11 @@ const scheduleTriggerRunsTable = pgTable(
       () => conversationsTable.id,
       { onDelete: "set null" },
     ),
-    startedAt: timestamp("started_at", { mode: "date" }),
-    completedAt: timestamp("completed_at", { mode: "date" }),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "date" }),
+    completedAt: timestamp("completed_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     error: text("error"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" })
@@ -51,6 +57,9 @@ const scheduleTriggerRunsTable = pgTable(
     index("schedule_trigger_runs_chat_conversation_id_idx").on(
       table.chatConversationId,
     ),
+    // NOTE: NULL values are not considered equal in PostgreSQL unique indexes,
+    // so manual runs (where dueAt is NULL) are not constrained by this index.
+    // This is intentional — multiple manual runs for the same trigger are allowed.
     uniqueIndex("schedule_trigger_runs_trigger_due_at_unique_idx").on(
       table.triggerId,
       table.dueAt,

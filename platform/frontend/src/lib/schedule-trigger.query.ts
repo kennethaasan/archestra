@@ -1,7 +1,23 @@
-import type { ApiError, PaginationMeta } from "@shared";
+// TODO: Run `pnpm codegen` to generate SDK methods for schedule-trigger endpoints,
+// then replace the local types below with `archestraApiTypes.*` from `@shared`.
+import { archestraApiSdk, type PaginationMeta } from "@shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { handleApiError } from "./utils";
+
+const {
+  getScheduleTriggers,
+  getScheduleTrigger,
+  createScheduleTrigger,
+  updateScheduleTrigger,
+  deleteScheduleTrigger,
+  enableScheduleTrigger,
+  disableScheduleTrigger,
+  runScheduleTriggerNow,
+  getScheduleTriggerRuns,
+  getScheduleTriggerRun,
+  createScheduleTriggerRunConversation,
+} = archestraApiSdk;
 
 export type ScheduleTriggerRunStatus =
   | "pending"
@@ -137,19 +153,29 @@ export function useScheduleTriggers(params?: {
   refetchInterval?: number | false;
 }) {
   const queryParams = getScheduleTriggerListQueryParams(params);
-  const query = new URLSearchParams();
-  query.set("limit", String(queryParams.limit ?? 50));
-  query.set("offset", String(queryParams.offset ?? 0));
-  if (queryParams.enabled !== undefined) {
-    query.set("enabled", String(queryParams.enabled));
-  }
+  const emptyResponse: PaginatedResponse<ScheduleTrigger> = {
+    data: [],
+    pagination: EMPTY_PAGINATION,
+  };
 
   return useQuery({
     queryKey: scheduleTriggerKeys.list(queryParams),
-    queryFn: async () =>
-      await scheduleTriggerRequest<PaginatedResponse<ScheduleTrigger>>(
-        `/api/schedule-triggers?${query.toString()}`,
-      ),
+    queryFn: async () => {
+      const response = await getScheduleTriggers({
+        query: {
+          limit: queryParams.limit ?? 50,
+          offset: queryParams.offset ?? 0,
+          ...(queryParams.enabled !== undefined
+            ? { enabled: queryParams.enabled }
+            : {}),
+        },
+      });
+      if (response.error) {
+        handleApiError(response.error);
+        return emptyResponse;
+      }
+      return (response.data as PaginatedResponse<ScheduleTrigger>) ?? emptyResponse;
+    },
     ...(params?.refetchInterval
       ? { refetchInterval: params.refetchInterval }
       : {}),
@@ -165,10 +191,16 @@ export function useScheduleTrigger(
 ) {
   return useQuery({
     queryKey: scheduleTriggerKeys.detail(triggerId ?? ""),
-    queryFn: async () =>
-      await scheduleTriggerRequest<ScheduleTrigger>(
-        `/api/schedule-triggers/${triggerId}`,
-      ),
+    queryFn: async () => {
+      const response = await getScheduleTrigger({
+        path: { id: triggerId! },
+      });
+      if (response.error) {
+        handleApiError(response.error);
+        return null;
+      }
+      return (response.data as ScheduleTrigger) ?? null;
+    },
     enabled: !!triggerId && (params?.enabled ?? true),
     ...(params?.refetchInterval
       ? { refetchInterval: params.refetchInterval }
@@ -187,19 +219,28 @@ export function useScheduleTriggerRuns(
   },
 ) {
   const queryParams = getScheduleTriggerRunsQueryParams(params);
-  const query = new URLSearchParams();
-  query.set("limit", String(queryParams.limit ?? 10));
-  query.set("offset", String(queryParams.offset ?? 0));
-  if (queryParams.status) {
-    query.set("status", queryParams.status);
-  }
+  const emptyResponse: PaginatedResponse<ScheduleTriggerRun> = {
+    data: [],
+    pagination: EMPTY_PAGINATION,
+  };
 
   return useQuery({
     queryKey: scheduleTriggerKeys.runs(triggerId ?? "", queryParams),
-    queryFn: async () =>
-      await scheduleTriggerRequest<PaginatedResponse<ScheduleTriggerRun>>(
-        `/api/schedule-triggers/${triggerId}/runs?${query.toString()}`,
-      ),
+    queryFn: async () => {
+      const response = await getScheduleTriggerRuns({
+        path: { id: triggerId! },
+        query: {
+          limit: queryParams.limit ?? 10,
+          offset: queryParams.offset ?? 0,
+          ...(queryParams.status ? { status: queryParams.status } : {}),
+        },
+      });
+      if (response.error) {
+        handleApiError(response.error);
+        return emptyResponse;
+      }
+      return (response.data as PaginatedResponse<ScheduleTriggerRun>) ?? emptyResponse;
+    },
     enabled: !!triggerId && (params?.enabled ?? true),
     ...(params?.refetchInterval
       ? { refetchInterval: params.refetchInterval }
@@ -211,10 +252,15 @@ export function useHasActiveScheduleTriggers() {
   return useQuery({
     queryKey: scheduleTriggerKeys.status(),
     queryFn: async () => {
-      const response = await scheduleTriggerRequest<
-        PaginatedResponse<ScheduleTrigger>
-      >("/api/schedule-triggers?enabled=true&limit=1&offset=0");
-      return (response?.data.length ?? 0) > 0;
+      const response = await getScheduleTriggers({
+        query: { enabled: true, limit: 1, offset: 0 },
+      });
+      if (response.error) {
+        handleApiError(response.error);
+        return false;
+      }
+      const data = response.data as PaginatedResponse<ScheduleTrigger> | undefined;
+      return (data?.data.length ?? 0) > 0;
     },
   });
 }
@@ -229,10 +275,16 @@ export function useScheduleTriggerRun(
 ) {
   return useQuery({
     queryKey: scheduleTriggerKeys.run(triggerId ?? "", runId ?? ""),
-    queryFn: async () =>
-      await scheduleTriggerRequest<ScheduleTriggerRun>(
-        `/api/schedule-triggers/${triggerId}/runs/${runId}`,
-      ),
+    queryFn: async () => {
+      const response = await getScheduleTriggerRun({
+        path: { id: triggerId!, runId: runId! },
+      });
+      if (response.error) {
+        handleApiError(response.error);
+        return null;
+      }
+      return (response.data as ScheduleTriggerRun) ?? null;
+    },
     enabled: !!triggerId && !!runId && (params?.enabled ?? true),
     ...(params?.refetchInterval
       ? { refetchInterval: params.refetchInterval }
@@ -251,16 +303,14 @@ export function useCreateScheduleTriggerRunConversation() {
       triggerId: string;
       runId: string;
     }) => {
-      const conversation = await scheduleTriggerRequest<{ id: string }>(
-        `/api/schedule-triggers/${triggerId}/runs/${runId}/conversation`,
-        {
-          method: "POST",
-        },
-      );
-      if (!conversation) {
+      const response = await createScheduleTriggerRunConversation({
+        path: { id: triggerId, runId },
+      });
+      if (response.error) {
+        handleApiError(response.error);
         throw new Error("Failed to create a conversation for this run");
       }
-      return conversation;
+      return response.data as { id: string };
     },
     onSuccess: (conversation, variables) => {
       queryClient.invalidateQueries({
@@ -283,11 +333,14 @@ export function useCreateScheduleTrigger() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (body: ScheduleTriggerRequestBody) =>
-      await scheduleTriggerRequest<ScheduleTrigger>("/api/schedule-triggers", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
+    mutationFn: async (body: ScheduleTriggerRequestBody) => {
+      const response = await createScheduleTrigger({ body });
+      if (response.error) {
+        handleApiError(response.error);
+        return null;
+      }
+      return (response.data as ScheduleTrigger) ?? null;
+    },
     onSuccess: (data) => {
       if (!data) return;
       toast.success("Schedule trigger created");
@@ -306,14 +359,17 @@ export function useUpdateScheduleTrigger() {
     }: {
       id: string;
       body: Partial<ScheduleTriggerRequestBody>;
-    }) =>
-      await scheduleTriggerRequest<ScheduleTrigger>(
-        `/api/schedule-triggers/${id}`,
-        {
-          method: "PUT",
-          body: JSON.stringify(body),
-        },
-      ),
+    }) => {
+      const response = await updateScheduleTrigger({
+        path: { id },
+        body,
+      });
+      if (response.error) {
+        handleApiError(response.error);
+        return null;
+      }
+      return (response.data as ScheduleTrigger) ?? null;
+    },
     onSuccess: (data) => {
       if (!data) return;
       toast.success("Schedule trigger updated");
@@ -326,13 +382,14 @@ export function useDeleteScheduleTrigger() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) =>
-      await scheduleTriggerRequest<{ success: boolean }>(
-        `/api/schedule-triggers/${id}`,
-        {
-          method: "DELETE",
-        },
-      ),
+    mutationFn: async (id: string) => {
+      const response = await deleteScheduleTrigger({ path: { id } });
+      if (response.error) {
+        handleApiError(response.error);
+        return null;
+      }
+      return response.data as { success: boolean } | null;
+    },
     onSuccess: (data) => {
       if (!data?.success) return;
       toast.success("Schedule trigger deleted");
@@ -345,13 +402,14 @@ export function useEnableScheduleTrigger() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) =>
-      await scheduleTriggerRequest<ScheduleTrigger>(
-        `/api/schedule-triggers/${id}/enable`,
-        {
-          method: "POST",
-        },
-      ),
+    mutationFn: async (id: string) => {
+      const response = await enableScheduleTrigger({ path: { id } });
+      if (response.error) {
+        handleApiError(response.error);
+        return null;
+      }
+      return (response.data as ScheduleTrigger) ?? null;
+    },
     onSuccess: (data) => {
       if (!data) return;
       toast.success("Schedule trigger enabled");
@@ -364,13 +422,14 @@ export function useDisableScheduleTrigger() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) =>
-      await scheduleTriggerRequest<ScheduleTrigger>(
-        `/api/schedule-triggers/${id}/disable`,
-        {
-          method: "POST",
-        },
-      ),
+    mutationFn: async (id: string) => {
+      const response = await disableScheduleTrigger({ path: { id } });
+      if (response.error) {
+        handleApiError(response.error);
+        return null;
+      }
+      return (response.data as ScheduleTrigger) ?? null;
+    },
     onSuccess: (data) => {
       if (!data) return;
       toast.success("Schedule trigger disabled");
@@ -383,13 +442,14 @@ export function useRunScheduleTriggerNow() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) =>
-      await scheduleTriggerRequest<ScheduleTriggerRun>(
-        `/api/schedule-triggers/${id}/run-now`,
-        {
-          method: "POST",
-        },
-      ),
+    mutationFn: async (id: string) => {
+      const response = await runScheduleTriggerNow({ path: { id } });
+      if (response.error) {
+        handleApiError(response.error);
+        return null;
+      }
+      return (response.data as ScheduleTriggerRun) ?? null;
+    },
     onSuccess: (data) => {
       if (!data) return;
       toast.success("Run queued");
@@ -401,58 +461,11 @@ export function useRunScheduleTriggerNow() {
   });
 }
 
-async function scheduleTriggerRequest<T>(
-  input: string,
-  init?: RequestInit,
-): Promise<T | null> {
-  try {
-    const response = await fetch(input, {
-      ...init,
-      credentials: "include",
-      headers: {
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
-        ...(init?.headers ?? {}),
-      },
-    });
-    const payload = (await readJson(response)) as ErrorPayload | T;
-
-    if (!response.ok) {
-      handleApiError({
-        error: extractApiError(payload) ?? new Error(response.statusText),
-      });
-      return null;
-    }
-
-    return payload as T;
-  } catch (error) {
-    handleApiError({
-      error: error instanceof Error ? error : new Error(String(error)),
-    });
-    return null;
-  }
-}
-
-type ErrorPayload = {
-  error?: Partial<ApiError>;
+const EMPTY_PAGINATION: PaginationMeta = {
+  currentPage: 1,
+  limit: 50,
+  total: 0,
+  totalPages: 0,
+  hasNext: false,
+  hasPrev: false,
 };
-
-function extractApiError(payload: unknown): Partial<ApiError> | undefined {
-  if (!payload || typeof payload !== "object" || !("error" in payload)) {
-    return undefined;
-  }
-
-  return (payload as ErrorPayload).error;
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  const text = await response.text();
-  if (!text) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}

@@ -422,35 +422,37 @@ class ScheduleTriggerModel {
     completedAt: Date;
     error: string | null;
   }): Promise<void> {
-    if (params.status === "failed") {
-      await db
-        .update(schema.scheduleTriggersTable)
-        .set({
-          lastRunAt: params.completedAt,
-          lastRunStatus: params.status,
-          lastError: params.error,
-          consecutiveFailures: sql`${schema.scheduleTriggersTable.consecutiveFailures} + 1`,
-        })
-        .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
+    await db.transaction(async (tx) => {
+      if (params.status === "failed") {
+        await tx
+          .update(schema.scheduleTriggersTable)
+          .set({
+            lastRunAt: params.completedAt,
+            lastRunStatus: params.status,
+            lastError: params.error,
+            consecutiveFailures: sql`${schema.scheduleTriggersTable.consecutiveFailures} + 1`,
+          })
+          .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
 
-      await db.execute(sql`
-        UPDATE schedule_triggers
-        SET enabled = false, next_due_at = NULL
-        WHERE id = ${params.triggerId}
-          AND consecutive_failures >= max_consecutive_failures
-          AND enabled = true
-      `);
-    } else {
-      await db
-        .update(schema.scheduleTriggersTable)
-        .set({
-          lastRunAt: params.completedAt,
-          lastRunStatus: params.status,
-          lastError: params.error,
-          consecutiveFailures: 0,
-        })
-        .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
-    }
+        await tx.execute(sql`
+          UPDATE schedule_triggers
+          SET enabled = false, next_due_at = NULL
+          WHERE id = ${params.triggerId}
+            AND consecutive_failures >= max_consecutive_failures
+            AND enabled = true
+        `);
+      } else {
+        await tx
+          .update(schema.scheduleTriggersTable)
+          .set({
+            lastRunAt: params.completedAt,
+            lastRunStatus: params.status,
+            lastError: params.error,
+            consecutiveFailures: 0,
+          })
+          .where(eq(schema.scheduleTriggersTable.id, params.triggerId));
+      }
+    });
   }
 
   private static async lockDueTrigger(
