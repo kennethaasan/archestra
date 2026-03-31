@@ -1,5 +1,5 @@
 import { and, eq, gt, sql } from "drizzle-orm";
-import db, { schema } from "@/database";
+import db, { schema, type Transaction } from "@/database";
 import type { InsertMessage, Message } from "@/types";
 
 class MessageModel {
@@ -9,8 +9,9 @@ class MessageModel {
    */
   private static async touchConversation(
     conversationId: string,
+    txOrDb: Transaction | typeof db = db,
   ): Promise<void> {
-    await db
+    await txOrDb
       .update(schema.conversationsTable)
       .set({ updatedAt: new Date() })
       .where(eq(schema.conversationsTable.id, conversationId));
@@ -28,24 +29,32 @@ class MessageModel {
     return message;
   }
 
-  static async bulkCreate(messages: InsertMessage[]): Promise<void> {
+  static async bulkCreate(
+    messages: InsertMessage[],
+    txOrDb: Transaction | typeof db = db,
+  ): Promise<void> {
     if (messages.length === 0) {
       return;
     }
 
-    await db.insert(schema.messagesTable).values(messages);
+    await txOrDb.insert(schema.messagesTable).values(messages);
 
     // Update conversation's updatedAt for all affected conversations
     const uniqueConversationIds = [
       ...new Set(messages.map((m) => m.conversationId)),
     ];
     await Promise.all(
-      uniqueConversationIds.map((id) => MessageModel.touchConversation(id)),
+      uniqueConversationIds.map((id) =>
+        MessageModel.touchConversation(id, txOrDb),
+      ),
     );
   }
 
-  static async findByConversation(conversationId: string): Promise<Message[]> {
-    const messages = await db
+  static async findByConversation(
+    conversationId: string,
+    txOrDb: Transaction | typeof db = db,
+  ): Promise<Message[]> {
+    const messages = await txOrDb
       .select()
       .from(schema.messagesTable)
       .where(eq(schema.messagesTable.conversationId, conversationId))
@@ -109,9 +118,13 @@ class MessageModel {
     messageId: string,
     partIndex: number,
     newText: string,
+    txOrDb: Transaction | typeof db = db,
   ): Promise<Message> {
     // Fetch the current message
-    const message = await MessageModel.findById(messageId);
+    const [message] = await txOrDb
+      .select()
+      .from(schema.messagesTable)
+      .where(eq(schema.messagesTable.id, messageId));
 
     if (!message) {
       throw new Error("Message not found");
@@ -137,7 +150,7 @@ class MessageModel {
     content.parts[partIndex].text = newText;
 
     // Update the message in the database
-    const [updatedMessage] = await db
+    const [updatedMessage] = await txOrDb
       .update(schema.messagesTable)
       .set({
         content,

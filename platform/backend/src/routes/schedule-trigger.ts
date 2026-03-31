@@ -692,28 +692,36 @@ async function ensureRunConversation(params: {
           id: existingConversationId,
           userId,
           organizationId,
+          txOrDb: tx,
         })) ??
-        (await ConversationModel.create({
-          userId,
-          organizationId,
-          agentId: run.agentIdSnapshot,
-          title: conversationTitle,
-          selectedModel: llmSelection.selectedModel,
-          selectedProvider: llmSelection.selectedProvider,
-          chatApiKeyId: llmSelection.chatApiKeyId,
-        })))
-      : await ConversationModel.create({
-          userId,
-          organizationId,
-          agentId: run.agentIdSnapshot,
-          title: conversationTitle,
-          selectedModel: llmSelection.selectedModel,
-          selectedProvider: llmSelection.selectedProvider,
-          chatApiKeyId: llmSelection.chatApiKeyId,
-        });
+        (await ConversationModel.create(
+          {
+            userId,
+            organizationId,
+            agentId: run.agentIdSnapshot,
+            title: conversationTitle,
+            selectedModel: llmSelection.selectedModel,
+            selectedProvider: llmSelection.selectedProvider,
+            chatApiKeyId: llmSelection.chatApiKeyId,
+          },
+          tx,
+        )))
+      : await ConversationModel.create(
+          {
+            userId,
+            organizationId,
+            agentId: run.agentIdSnapshot,
+            title: conversationTitle,
+            selectedModel: llmSelection.selectedModel,
+            selectedProvider: llmSelection.selectedProvider,
+            chatApiKeyId: llmSelection.chatApiKeyId,
+          },
+          tx,
+        );
 
     const conversationMessages = await MessageModel.findByConversation(
       conversation.id,
+      tx,
     );
 
     if (conversationMessages.length === 0) {
@@ -730,8 +738,10 @@ async function ensureRunConversation(params: {
           content: message,
           createdAt: new Date(createdAt + index),
         })),
+        tx,
       );
     } else if (
+      conversationMessages.length >= 2 &&
       shouldUpdateSeededRunAssistantMessage({
         messages: conversationMessages,
         prompt: run.messageTemplateSnapshot,
@@ -742,6 +752,7 @@ async function ensureRunConversation(params: {
         conversationMessages[1].id,
         0,
         output.trim(),
+        tx,
       );
     }
 
@@ -758,6 +769,7 @@ async function ensureRunConversation(params: {
       id: conversation.id,
       userId,
       organizationId,
+      txOrDb: tx,
     });
     if (!refreshedConversation) {
       throw new ApiError(500, "Failed to load the run conversation");
