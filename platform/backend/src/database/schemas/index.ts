@@ -52,6 +52,7 @@ export { default as organizationsTable } from "./organization";
 export { organizationRole as organizationRolesTable } from "./organization-role";
 export { default as processedEmailsTable } from "./processed-email";
 export { default as scheduleTriggersTable } from "./schedule-trigger";
+export { default as scheduleTriggerRunConversationsTable } from "./schedule-trigger-run-conversation";
 export { default as scheduleTriggerRunsTable } from "./schedule-trigger-run";
 export { default as secretsTable } from "./secret";
 export { default as sessionsTable } from "./session";

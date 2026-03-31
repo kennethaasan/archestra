@@ -1,4 +1,13 @@
-import { and, count, desc, eq, inArray, lt, or } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  lt,
+  or,
+} from "drizzle-orm";
 import db, { schema, type Transaction } from "@/database";
 import type {
   ScheduleTrigger,
@@ -135,6 +144,57 @@ class ScheduleTriggerRunModel {
     return await query;
   }
 
+  static async listByTriggerForUser(params: {
+    organizationId: string;
+    triggerId: string;
+    userId: string;
+    limit?: number;
+    offset?: number;
+    status?: ScheduleTriggerRunStatus;
+  }): Promise<ScheduleTriggerRun[]> {
+    const conditions = [
+      eq(schema.scheduleTriggerRunsTable.organizationId, params.organizationId),
+      eq(schema.scheduleTriggerRunsTable.triggerId, params.triggerId),
+    ];
+
+    if (params.status) {
+      conditions.push(
+        eq(schema.scheduleTriggerRunsTable.status, params.status),
+      );
+    }
+
+    let query = db
+      .select({
+        ...getTableColumns(schema.scheduleTriggerRunsTable),
+        chatConversationId:
+          schema.scheduleTriggerRunConversationsTable.conversationId,
+      })
+      .from(schema.scheduleTriggerRunsTable)
+      .leftJoin(
+        schema.scheduleTriggerRunConversationsTable,
+        and(
+          eq(
+            schema.scheduleTriggerRunConversationsTable.runId,
+            schema.scheduleTriggerRunsTable.id,
+          ),
+          eq(schema.scheduleTriggerRunConversationsTable.userId, params.userId),
+        ),
+      )
+      .where(and(...conditions))
+      .orderBy(desc(schema.scheduleTriggerRunsTable.createdAt))
+      .$dynamic();
+
+    if (params.limit !== undefined) {
+      query = query.limit(params.limit);
+    }
+
+    if (params.offset !== undefined) {
+      query = query.offset(params.offset);
+    }
+
+    return await query;
+  }
+
   static async findById(id: string): Promise<ScheduleTriggerRun | null> {
     const [run] = await db
       .select()
@@ -144,15 +204,28 @@ class ScheduleTriggerRunModel {
     return run ?? null;
   }
 
-  static async setChatConversationId(params: {
-    runId: string;
-    chatConversationId: string | null;
-  }): Promise<ScheduleTriggerRun | null> {
+  static async findByIdForUser(
+    id: string,
+    userId: string,
+  ): Promise<ScheduleTriggerRun | null> {
     const [run] = await db
-      .update(schema.scheduleTriggerRunsTable)
-      .set({ chatConversationId: params.chatConversationId })
-      .where(eq(schema.scheduleTriggerRunsTable.id, params.runId))
-      .returning();
+      .select({
+        ...getTableColumns(schema.scheduleTriggerRunsTable),
+        chatConversationId:
+          schema.scheduleTriggerRunConversationsTable.conversationId,
+      })
+      .from(schema.scheduleTriggerRunsTable)
+      .leftJoin(
+        schema.scheduleTriggerRunConversationsTable,
+        and(
+          eq(
+            schema.scheduleTriggerRunConversationsTable.runId,
+            schema.scheduleTriggerRunsTable.id,
+          ),
+          eq(schema.scheduleTriggerRunConversationsTable.userId, userId),
+        ),
+      )
+      .where(eq(schema.scheduleTriggerRunsTable.id, id));
 
     return run ?? null;
   }

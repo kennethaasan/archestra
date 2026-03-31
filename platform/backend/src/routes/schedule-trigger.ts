@@ -15,6 +15,7 @@ import {
   InteractionModel,
   MessageModel,
   ScheduleTriggerModel,
+  ScheduleTriggerRunConversationModel,
   ScheduleTriggerRunModel,
 } from "@/models";
 import { calculateNextDueAt } from "@/schedule-triggers/utils";
@@ -286,7 +287,6 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
 
       const updated = await ScheduleTriggerModel.update(id, {
         ...body,
-        actorUserId: user.id,
         enabled,
         nextDueAt: shouldRecalculateNextDueAt
           ? enabled
@@ -350,7 +350,6 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
 
       const updated = await ScheduleTriggerModel.update(id, {
         enabled: true,
-        actorUserId: user.id,
         consecutiveFailures: 0,
         nextDueAt: calculateNextDueAt({
           cronExpression: trigger.cronExpression,
@@ -386,7 +385,6 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
 
       const updated = await ScheduleTriggerModel.update(id, {
         enabled: false,
-        actorUserId: user.id,
         nextDueAt: null,
       });
 
@@ -468,9 +466,10 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
       });
 
       const [data, total] = await Promise.all([
-        ScheduleTriggerRunModel.listByTrigger({
+        ScheduleTriggerRunModel.listByTriggerForUser({
           organizationId,
           triggerId: trigger.id,
+          userId: user.id,
           limit,
           offset,
           status,
@@ -592,7 +591,10 @@ async function findAccessibleRunOrThrow(params: {
     organizationId: params.organizationId,
   });
 
-  const run = await ScheduleTriggerRunModel.findById(params.runId);
+  const run = await ScheduleTriggerRunModel.findByIdForUser(
+    params.runId,
+    params.userId,
+  );
   if (
     !run ||
     run.organizationId !== params.organizationId ||
@@ -611,7 +613,11 @@ async function ensureRunConversation(params: {
 }): Promise<z.infer<typeof SelectConversationSchema>> {
   const { run, userId, organizationId } = params;
 
-  const existingConversationId = run.chatConversationId;
+  const existingConversationId =
+    await ScheduleTriggerRunConversationModel.findConversationIdForUser({
+      runId: run.id,
+      userId,
+    });
 
   const agent = await AgentModel.findById(run.agentIdSnapshot);
   if (!agent || agent.organizationId !== organizationId) {
@@ -705,9 +711,10 @@ async function ensureRunConversation(params: {
     );
   }
 
-  if (run.chatConversationId !== conversation.id) {
-    await ScheduleTriggerRunModel.setChatConversationId({
+  if (existingConversationId !== conversation.id) {
+    await ScheduleTriggerRunConversationModel.upsert({
       runId: run.id,
+      userId,
       chatConversationId: conversation.id,
     });
   }

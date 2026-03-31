@@ -245,6 +245,73 @@ describe("schedule trigger routes", () => {
     expect(updateResponse.json().nextDueAt).toBeTruthy();
   });
 
+  test("keeps the stored actor when another user edits or toggles the trigger", async ({
+    makeInternalAgent,
+    makeTeam,
+    makeTeamMember,
+    makeUser,
+  }) => {
+    const team = await makeTeam(organizationId, user.id, { name: "Ops" });
+    await makeTeamMember(team.id, user.id);
+    const otherUser = await makeUser();
+    await makeTeamMember(team.id, otherUser.id);
+    const agent = await makeInternalAgent({
+      organizationId,
+      scope: "team",
+      teams: [team.id],
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/schedule-triggers",
+      payload: {
+        name: "Daily digest",
+        agentId: agent.id,
+        cronExpression: "0 9 * * 1-5",
+        timezone: "Europe/Oslo",
+        messageTemplate: "Initial prompt",
+      },
+    });
+    const created = createResponse.json();
+    const originalActorUserId = created.actorUserId;
+
+    user = otherUser;
+
+    const updateResponse = await app.inject({
+      method: "PUT",
+      url: `/api/schedule-triggers/${created.id}`,
+      payload: {
+        messageTemplate: "Updated prompt",
+      },
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      actorUserId: originalActorUserId,
+      messageTemplate: "Updated prompt",
+    });
+
+    const disableResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/disable`,
+    });
+    expect(disableResponse.statusCode).toBe(200);
+    expect(disableResponse.json()).toMatchObject({
+      actorUserId: originalActorUserId,
+      enabled: false,
+    });
+
+    const enableResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/enable`,
+    });
+    expect(enableResponse.statusCode).toBe(200);
+    expect(enableResponse.json()).toMatchObject({
+      actorUserId: originalActorUserId,
+      enabled: true,
+    });
+  });
+
   test("refreshes an existing run conversation with real output once the run response exists", async ({
     makeInternalAgent,
   }) => {
@@ -473,6 +540,71 @@ describe("schedule trigger routes", () => {
         }),
       ],
     });
+  });
+
+  test("keeps separate run conversations per viewer", async ({
+    makeInternalAgent,
+    makeTeam,
+    makeTeamMember,
+    makeUser,
+    makeMember,
+  }) => {
+    const team = await makeTeam(organizationId, user.id, { name: "Ops" });
+    await makeTeamMember(team.id, user.id);
+    const otherUser = await makeUser();
+    await makeMember(otherUser.id, organizationId, { role: "editor" });
+    await makeTeamMember(team.id, otherUser.id);
+    const agent = await makeInternalAgent({
+      organizationId,
+      scope: "team",
+      teams: [team.id],
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/schedule-triggers",
+      payload: {
+        name: "Output sync",
+        agentId: agent.id,
+        cronExpression: "0 12 * * *",
+        timezone: "UTC",
+        messageTemplate: "Summarize the latest run",
+      },
+    });
+    const created = createResponse.json();
+
+    const runNowResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/run-now`,
+    });
+    const run = runNowResponse.json();
+
+    const firstConversationResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/runs/${run.id}/conversation`,
+    });
+    expect(firstConversationResponse.statusCode).toBe(200);
+
+    user = otherUser;
+
+    const secondConversationResponse = await app.inject({
+      method: "POST",
+      url: `/api/schedule-triggers/${created.id}/runs/${run.id}/conversation`,
+    });
+
+    expect(secondConversationResponse.statusCode).toBe(200);
+    expect(secondConversationResponse.json().id).not.toBe(
+      firstConversationResponse.json().id,
+    );
+
+    const runResponse = await app.inject({
+      method: "GET",
+      url: `/api/schedule-triggers/${created.id}/runs/${run.id}`,
+    });
+    expect(runResponse.statusCode).toBe(200);
+    expect(runResponse.json().chatConversationId).toBe(
+      secondConversationResponse.json().id,
+    );
   });
 
   test("rejects create when the user lacks access to the selected agent", async ({
