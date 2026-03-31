@@ -10,6 +10,7 @@ import {
   isValidTimezone,
   normalizeCronExpression,
   normalizeTimezone,
+  validateCronMinimumInterval,
 } from "@/schedule-triggers/utils";
 
 export const ScheduleTriggerScheduleKindSchema = z.enum(["cron"]);
@@ -105,10 +106,12 @@ function validateScheduleTriggerFields(
   }
 
   try {
-    createCron({
+    const params = {
       cronExpression: normalizeCronExpression(cronExpression),
       timezone: normalizeTimezone(timezone),
-    });
+    };
+    createCron(params);
+    validateCronMinimumInterval(params);
   } catch (error) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

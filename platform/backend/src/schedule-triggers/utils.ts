@@ -4,6 +4,7 @@ export const SCHEDULE_TRIGGERS_DUE_TRIGGER_BATCH_SIZE = 25;
 export const SCHEDULE_TRIGGERS_MAX_DUE_TRIGGERS_PER_SWEEP = 250;
 export const SCHEDULE_TRIGGERS_MAX_MISSED_SLOTS_PER_PASS = 20;
 export const SCHEDULE_TRIGGER_BACKFILL_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+export const SCHEDULE_TRIGGER_MINIMUM_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 export function normalizeCronExpression(expression: string): string {
   return expression.trim().replace(/\s+/g, " ");
@@ -47,4 +48,24 @@ export function calculateNextDueAtOnOrAfter(params: {
   from: Date;
 }): Date | null {
   return createCron(params).nextRun(new Date(params.from.getTime() - 1));
+}
+
+export function validateCronMinimumInterval(params: {
+  cronExpression: string;
+  timezone: string;
+}): void {
+  const cron = createCron(params);
+  // Using 2000-01-01 as a stable reference date to avoid DST edge cases affecting the test
+  const refDate = new Date("2000-01-01T00:00:00Z");
+  
+  const firstRun = cron.nextRun(refDate);
+  if (!firstRun) return;
+
+  const secondRun = cron.nextRun(firstRun);
+  if (!secondRun) return;
+
+  const interval = secondRun.getTime() - firstRun.getTime();
+  if (interval < SCHEDULE_TRIGGER_MINIMUM_INTERVAL_MS) {
+    throw new Error("Schedule must not fire more frequently than once per hour");
+  }
 }

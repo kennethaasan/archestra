@@ -276,7 +276,7 @@ export function ScheduleTriggersIndexPage() {
       cronExpression: trigger.cronExpression,
       timezone: trigger.timezone,
       messageTemplate: trigger.messageTemplate,
-      overlapPolicy: trigger.overlapPolicy ?? "allow_all",
+      overlapPolicy: trigger.overlapPolicy ?? "skip",
       maxConsecutiveFailures: trigger.maxConsecutiveFailures ?? 5,
     });
   }, []);
@@ -695,7 +695,7 @@ export function ScheduleTriggerDetailPage({
       cronExpression: trigger.cronExpression,
       timezone: trigger.timezone,
       messageTemplate: trigger.messageTemplate,
-      overlapPolicy: trigger.overlapPolicy ?? "allow_all",
+      overlapPolicy: trigger.overlapPolicy ?? "skip",
       maxConsecutiveFailures: trigger.maxConsecutiveFailures ?? 5,
     });
   }, [trigger]);
@@ -816,7 +816,7 @@ export function ScheduleTriggerDetailPage({
       cronExpression: trigger.cronExpression,
       timezone: trigger.timezone,
       messageTemplate: trigger.messageTemplate,
-      overlapPolicy: trigger.overlapPolicy ?? "allow_all",
+      overlapPolicy: trigger.overlapPolicy ?? "skip",
       maxConsecutiveFailures: trigger.maxConsecutiveFailures ?? 5,
     });
     setEditing(false);

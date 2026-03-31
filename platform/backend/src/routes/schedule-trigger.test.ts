@@ -398,7 +398,6 @@ describe("schedule trigger routes", () => {
           role: "user",
           parts: [{ type: "text", text: "Please keep going" }],
         },
-        createdAt: new Date(Date.now() + 10),
       },
       {
         conversationId: conversation.id,
@@ -407,7 +406,6 @@ describe("schedule trigger routes", () => {
           role: "assistant",
           parts: [{ type: "text", text: "Waiting for the run to finish." }],
         },
-        createdAt: new Date(Date.now() + 11),
       },
     ]);
 

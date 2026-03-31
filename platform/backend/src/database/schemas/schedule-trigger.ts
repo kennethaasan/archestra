@@ -32,7 +32,7 @@ const scheduleTriggersTable = pgTable(
     overlapPolicy: text("overlap_policy")
       .$type<ScheduleTriggerOverlapPolicy>()
       .notNull()
-      .default("allow_all"),
+      .default("skip"),
     consecutiveFailures: integer("consecutive_failures").notNull().default(0),
     maxConsecutiveFailures: integer("max_consecutive_failures")
       .notNull()

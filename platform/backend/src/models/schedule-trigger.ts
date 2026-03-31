@@ -292,7 +292,7 @@ class ScheduleTriggerModel {
       return [];
     }
 
-    const overlapPolicy = trigger.overlapPolicy ?? "allow_all";
+    const overlapPolicy = trigger.overlapPolicy ?? "skip";
 
     if (overlapPolicy === "skip" || overlapPolicy === "buffer_one") {
       const activeCount =
@@ -506,7 +506,7 @@ class ScheduleTriggerModel {
 
     return {
       ...row,
-      overlapPolicy: row.overlapPolicy ?? "allow_all",
+      overlapPolicy: row.overlapPolicy ?? "skip",
       nextDueAt: normalizeDatabaseDate(row.nextDueAt),
     };
   }

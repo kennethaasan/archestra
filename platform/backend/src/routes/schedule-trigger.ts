@@ -187,7 +187,7 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         timezone: body.timezone,
         enabled: body.enabled ?? true,
         actorUserId: user.id,
-        overlapPolicy: body.overlapPolicy ?? "allow_all",
+        overlapPolicy: body.overlapPolicy ?? "skip",
         maxConsecutiveFailures: body.maxConsecutiveFailures ?? 5,
         nextDueAt:
           (body.enabled ?? true)

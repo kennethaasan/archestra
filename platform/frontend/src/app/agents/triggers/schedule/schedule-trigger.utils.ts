@@ -27,7 +27,7 @@ export const DEFAULT_FORM_STATE = (): ScheduleTriggerFormState => ({
   cronExpression: "0 9 * * 1-5",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   messageTemplate: "",
-  overlapPolicy: "allow_all",
+  overlapPolicy: "skip",
   maxConsecutiveFailures: 5,
 });
 

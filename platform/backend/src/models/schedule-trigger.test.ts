@@ -52,6 +52,7 @@ describe("ScheduleTriggerModel", () => {
       cronExpression: "0 * * * *",
       timezone: "UTC",
       enabled: true,
+      overlapPolicy: "allow_all",
       actorUserId: actor.id,
       nextDueAt: new Date("2026-03-18T08:00:00.000Z"),
       lastRunAt: null,

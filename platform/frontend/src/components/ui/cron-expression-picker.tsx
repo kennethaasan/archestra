@@ -17,7 +17,6 @@ export type CronPresetOption = {
 };
 
 export const DEFAULT_CRON_PRESET_OPTIONS: CronPresetOption[] = [
-  { label: "Every 30 minutes", value: "*/30 * * * *" },
   { label: "Every hour", value: "0 * * * *" },
   { label: "Every 6 hours", value: "0 */6 * * *" },
   { label: "Every 12 hours", value: "0 */12 * * *" },
