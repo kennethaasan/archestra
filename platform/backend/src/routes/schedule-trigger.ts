@@ -266,6 +266,27 @@ const scheduleTriggerRoutes: FastifyPluginAsyncZod = async (fastify) => {
         throw new ApiError(400, "Scheduled triggers require an internal agent");
       }
 
+      const isChangingAgent =
+        body.agentId !== undefined && body.agentId !== existing.agentId;
+      if (isChangingAgent) {
+        const actorIsAgentAdmin = await hasAnyAgentTypeAdminPermission({
+          userId: existing.actorUserId,
+          organizationId,
+        });
+        const actorHasAgentAccess = await AgentTeamModel.userHasAgentAccess(
+          existing.actorUserId,
+          agentId,
+          actorIsAgentAdmin,
+        );
+
+        if (!actorHasAgentAccess) {
+          throw new ApiError(
+            400,
+            "The stored trigger actor must have access to the selected agent",
+          );
+        }
+      }
+
       const enabled = body.enabled ?? existing.enabled;
       const cronExpression = body.cronExpression ?? existing.cronExpression;
       const timezone = body.timezone ?? existing.timezone;

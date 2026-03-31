@@ -312,6 +312,83 @@ describe("schedule trigger routes", () => {
     });
   });
 
+  test("rejects agent changes when the stored actor cannot access the replacement", async ({
+    makeInternalAgent,
+    makeTeam,
+    makeTeamMember,
+    makeUser,
+    makeMember,
+  }) => {
+    const sharedTeam = await makeTeam(organizationId, user.id, {
+      name: "Shared Team",
+    });
+    await makeTeamMember(sharedTeam.id, user.id);
+
+    const editor = await makeUser();
+    await makeMember(editor.id, organizationId, { role: "editor" });
+    await makeTeamMember(sharedTeam.id, editor.id);
+
+    const editorOnlyTeam = await makeTeam(organizationId, editor.id, {
+      name: "Editor Only Team",
+    });
+    await makeTeamMember(editorOnlyTeam.id, editor.id);
+
+    const originalAgent = await makeInternalAgent({
+      organizationId,
+      scope: "team",
+      teams: [sharedTeam.id],
+    });
+    const replacementAgent = await makeInternalAgent({
+      organizationId,
+      scope: "team",
+      teams: [editorOnlyTeam.id],
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/schedule-triggers",
+      payload: {
+        name: "Daily digest",
+        agentId: originalAgent.id,
+        cronExpression: "0 9 * * 1-5",
+        timezone: "Europe/Oslo",
+        messageTemplate: "Initial prompt",
+      },
+    });
+    const created = createResponse.json();
+
+    user = editor;
+
+    const updateResponse = await app.inject({
+      method: "PUT",
+      url: `/api/schedule-triggers/${created.id}`,
+      payload: {
+        agentId: replacementAgent.id,
+      },
+    });
+
+    expect(updateResponse.statusCode).toBe(400);
+    expect(updateResponse.json()).toEqual({
+      error: {
+        message:
+          "The stored trigger actor must have access to the selected agent",
+        type: "api_validation_error",
+      },
+    });
+
+    const getResponse = await app.inject({
+      method: "GET",
+      url: `/api/schedule-triggers/${created.id}`,
+    });
+
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toMatchObject({
+      id: created.id,
+      agentId: originalAgent.id,
+      actorUserId: created.actorUserId,
+    });
+  });
+
   test("refreshes an existing run conversation with real output once the run response exists", async ({
     makeInternalAgent,
   }) => {
